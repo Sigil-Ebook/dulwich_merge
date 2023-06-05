@@ -41,13 +41,14 @@ def _find_lcas(lookup_parents, c1, c2s):
                     return True
         return False
 
-    # initialize the working list handling with ancestry info
-    # note the possibility of c1 being one of c2s was *already* handled by merge_base caller
+    # initialize the working list states with ancestry info
+    # note possibility of c1 being one of c2s should be handled
     wlst: Deque[bytes] = deque()
     cstates[c1] = _ANC_OF_1
     wlst.append(c1)
     for c2 in c2s:
-        cstates[c2] = _ANC_OF_2
+        cflags = cstates.get(c2, 0)
+        cstates[c2] = cflags | _ANC_OF_2
         wlst.append(c2)
     
     # loop while at least one working list commit is still viable (not marked as _DNC)
@@ -69,7 +70,7 @@ def _find_lcas(lookup_parents, c1, c2s):
         if parents:
             for pcmt in parents:
                 pflags = cstates.get(pcmt, 0)
-                # if this parent cmt was already visited with no new ancestry/flag information
+                # if this parent was already visited with no new ancestry/flag information
                 # do not add it to the working list again
                 if ((pflags & cflags) == cflags):
                     continue
