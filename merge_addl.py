@@ -68,9 +68,8 @@ def _merge_entry(new_path, object_store, this_entry,
         object_store[other_entry.sha].as_raw_string(),
         object_store[base_entry.sha].as_raw_string())
     merged_text_blob = Blob.from_string(merged_text)
-    for (range_a, range_b, range_c) in conflict_list:
-        print("Conflict in: ", new_path, "line ranges: ", range_a, range_b)
-    # print(merged_text.decode('utf-8'))
+    for (range_o, range_a, range_b ) in conflict_list:
+        print("Chunk Conflict in: ", new_path, "line ranges: ", range_a, range_o, range_b)
     object_store.add_object(merged_text_blob)
     # TODO(jelmer): Report conflicts, if any?
     if this_entry.mode in (base_entry.mode, other_entry.mode):
@@ -176,7 +175,7 @@ def merge_tree(object_store, this_tree, other_tree, common_tree,
                 raise NotImplementedError(
                     '%r and %r' % (this_change, other_change))
             else:
-                yield other_change.new
+                yield TreeEntry(other_change.new.path, other_change.new.mode, other_change.new.sha)
         else:
             raise NotImplementedError(
                 'unsupported change type: %r' % other_change.type)
@@ -190,6 +189,33 @@ class MergeResults(object):
 
 def merge(repo, commit_ids, rename_detector=None, file_merger=None):
     """Perform a merge.
+    Args:
+      repo: Repository object
+      commit_ids: list of commit ids (shas with first entry being this and the remaining being other)
+      rename_detector: routine to detect files that have been renamed
+      file_merger: routine to perform the actual merging of files
+    Returns:
+       conflicts: list of MergeConflict objects or empty list if none
+
+    Note: File level chunk merge conflicts do NOT (yet?) create MergeConflict objects.
+          MergeConflict objects represent tree level conditions that can not be 
+          quickly or easily fixed that prevent a merge from completing.
+
+          Instead diff3-style conflict markup within the file is added to make hand 
+          editing to fix the conflicts possible before commit.
+
+    FixMe: How should we return the list of chunk level conflicts that need to be hand edited
+           to the caller.  Right now they are just printed by _merge_entry.
+
+           A MergeConflict object can NOT be used for that as multiple chunk conflicts are 
+           possible in a single file merger, and the resulting file (with diff3 file merge markup)
+           should be returned as a TreeEntry.
+
+           Perhaps merge_tree should return a tuple (Tree Entry, List of Conflicts) and throw
+           MergeConflict objects to immediately terminate since there really is now way 
+           forward when those are detected unless we pass in something that tells it which 
+           side to be biased towards (this vs the others aka alice vs bob)
+         
     """
     conflicts = []
     lcas = find_merge_base(repo, commit_ids)
