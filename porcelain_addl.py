@@ -92,6 +92,11 @@ from graph_fixed import (
     find_octopus_base
 )
 
+from merge_addl import (
+    merge,
+    MergeResults,
+    MergeConflict
+)
 
 def diff_tree(repo, old_tree, new_tree, outstream=default_bytes_out_stream):
     """Compares the content and mode of blobs found via two tree objects.
@@ -151,19 +156,21 @@ def _walk_working_dir_paths(frompath, basepath, prune_dirnames=None):
             dirnames[:] = prune_dirnames(dirpath, dirnames)
 
 
-def branch_merge(repo, committishs, file_merger=None):
+def branch_merge(repo, committishs, file_merger=None, update_working_dir=True):
     """Perform merge of set of commits representing branch heads
     Args:
-      repo: Repository in which the commits live
-      committishs: List of committish entries
-      file_merger: routine to perform the 3-way merge
+      repo:               Repository in which the commits live
+      committishs:        List of committish entries
+      file_merger:        routine to perform the 3-way merge
+      update_working_dir: write change entries to current working directory
     Returns:
+      MergeResults object
     """
-    from merge_addl import merge
     with open_repo_closing(repo) as r:
         commits = [parse_commit(r, committish).id
                    for committish in committishs]
-        return merge(r, commits, rename_detector=None, file_merger=file_merger)
+        mrg_results = merge(r, commits, rename_detector=None, file_merger=file_merger, update_working_dir=update_working_dir)
+        return mrg_results
 
 
 def merge_base(repo, committishs, all=False, octopus=False):
