@@ -19,8 +19,10 @@
 #
 
 """Merge support."""
-import os
 import sys
+import os
+import stat
+import posixpath
 
 from collections import namedtuple
 
@@ -230,6 +232,15 @@ class MergeResults(object):
             yield conflict
 
 
+def tree_entry_iterator(store, treeid, base):
+    for (name, mode, sha) in store[treeid].iteritems():
+        if base:
+            name = posixpath.join(base, name)
+        yield TreeEntry(name, mode, sha)
+        if stat.S_ISDIR(mode):
+            yield from tree_entry_iterator(store, sha, name)
+
+
 def merge(repo, commit_ids, rename_detector=None, file_merger=None, update_working_dir=False):
     """Perform a merge.
     Args:
@@ -247,6 +258,13 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None, update_worki
     # what if no merge base exists?
     #   should we set merge_base to this or other or ...
     [this_commit, other_commit] = commit_ids
+    
+    # this is to demonstrate how to walk list of all entries in a tree (directory)
+    # and its subtrees (subdirectories)
+    this_tree_id = repo.object_store[this_commit].tree
+    for entry in tree_entry_iterator(repo.object_store, this_tree_id, b""):
+        print(entry)
+
     try: 
         for entry, chunk_conflicts in merge_tree(
                 repo.object_store,
