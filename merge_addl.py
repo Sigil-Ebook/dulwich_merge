@@ -262,8 +262,8 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None, update_worki
     # this is to demonstrate how to walk list of all entries in a tree (directory)
     # and its subtrees (subdirectories)
     this_tree_id = repo.object_store[this_commit].tree
-    for entry in tree_entry_iterator(repo.object_store, this_tree_id, b""):
-        print(entry)
+    # for entry in tree_entry_iterator(repo.object_store, this_tree_id, b""):
+    #     print(entry)
 
     try: 
         for entry, chunk_conflicts in merge_tree(

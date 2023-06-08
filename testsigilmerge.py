@@ -15,6 +15,8 @@ from dulwich.porcelain import (
     branch_list
 )
 
+from dulwich.porcelain import status as porcelain_status
+
 import porcelain_addl
 
 from diff3merge import ( # noqa F401
@@ -28,13 +30,26 @@ from merge_addl import (
     MergeConflict
 )
 
+def working_dir_is_clean(status_tuple):
+    (staged, unstaged, untracked) = status_tuple
+    is_clean = len(staged["add"]) == 0
+    is_clean = is_clean and len(staged["delete"]) == 0
+    is_clean = is_clean and len(staged["modify"]) == 0
+    is_clean = is_clean and len(unstaged) == 0
+    is_clean = is_clean and len(untracked) == 0
+    return is_clean
+
 def main():
     os.chdir("Sigil")
+    status_info = porcelain_status(".")
+    if not working_dir_is_clean(status_info):
+        print("Repo must be clean for branch merge to happen")
+        return -1
     print(branch_list("."))
     mb = porcelain_addl.merge_base(".", ["master", "embed-pdf"])
-    print(mb)
-    print(porcelain_addl.merge_base_is_ancestor(".", mb, "master"))
-    print(porcelain_addl.merge_base_is_ancestor(".", mb, "embed-pdf"))
+    print("merge base: ", mb)
+    # print(porcelain_addl.merge_base_is_ancestor(".", mb, "master"))
+    # print(porcelain_addl.merge_base_is_ancestor(".", mb, "embed-pdf"))
     with open_repo_closing(".") as r:
         mrg_results = porcelain_addl.branch_merge(r, ["master", "embed-pdf"], do_file_merge_ndiff, update_working_dir=True)
         if mrg_results.merge_complete():
