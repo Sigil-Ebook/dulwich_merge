@@ -206,6 +206,7 @@ class MergeResults(object):
     def __init__(self):
         self.fatal_conflicts = []
         self.chunk_conflicts = []
+        self.hand_merge_set = set()
         self.updated_tree_entries = []
 
     def add_entry(self, entry):
@@ -213,6 +214,8 @@ class MergeResults(object):
 
     def add_chunk_conflict(self, conflict):
         self.chunk_conflicts.append(conflict)
+        (name, range_0, range_a, range_b) = conflict
+        self.hand_merge_set.add(name)
 
     def add_fatal_conflict(self, fatal):
         self.fatal_conflicts.append(fatal)
@@ -227,6 +230,9 @@ class MergeResults(object):
         for entry in self.updated_tree_entries:
             yield entry
             
+    def needs_to_be_hand_merged(self, name):
+        return name in self.hand_merge_set
+
     def chunk_conflict_iterator(self):
         for conflict in self.chunk_conflicts:
             yield conflict
@@ -241,7 +247,7 @@ def tree_entry_iterator(store, treeid, base):
             yield from tree_entry_iterator(store, sha, name)
 
 
-def merge(repo, commit_ids, rename_detector=None, file_merger=None, update_working_dir=False):
+def merge(repo, commit_ids, rename_detector=None, file_merger=None):
     """Perform a merge.
     Args:
       repo: Repository object
@@ -258,13 +264,9 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None, update_worki
     # what if no merge base exists?
     #   should we set merge_base to this or other or ...
     [this_commit, other_commit] = commit_ids
-    
-    # this is to demonstrate how to walk list of all entries in a tree (directory)
-    # and its subtrees (subdirectories)
-    this_tree_id = repo.object_store[this_commit].tree
-    # for entry in tree_entry_iterator(repo.object_store, this_tree_id, b""):
-    #     print(entry)
 
+    # to prevent corruption walk all changed entries first
+    # before touching working dir or staging changes for commit
     try: 
         for entry, chunk_conflicts in merge_tree(
                 repo.object_store,
@@ -274,18 +276,10 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None, update_worki
                 rename_detector=rename_detector,
                 file_merger=file_merger):
 
-            # update MergeResults
+            # store MergeResults
             mrg_results.add_entry(entry)
             for (apath, range_o, range_a, range_b ) in chunk_conflicts:
                 mrg_results.add_chunk_conflict((apath, range_o, range_a, range_b))
-            
-            # write results of files merged to the working dir
-            if (update_working_dir):
-                (path, mode, sha) = entry
-                full_path = os.path.join(os.fsencode(repo.path), path)
-                ensure_dir_exists(os.path.dirname(full_path))
-                blob = repo.object_store[sha]
-                build_file_from_blob(blob, mode, full_path)
               
     except MergeConflict as exc:
         print(exc.message)
@@ -294,7 +288,28 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None, update_worki
     
     except NotImplemented as exc:
         print(exc.message)
-        mrg_results.add_fatal_conflict.append(exc)
+        mrg_results.add_fatal_conflict(exc)
         return mrg_results
+
+    # if reached here there were no fatal conflicts
+    # so walk the updated entries writing the results to the
+    # working dir, and staging those that have no chunk level conflict
+    # (ie. no need to be hand merged)
+    to_stage_relpaths = []
+    for entry in mrg_results.updated_tree_entry_iterator():
+        # first update the working directory with the results of the merge
+        (path, mode, sha) = entry
+        full_path = os.path.join(os.fsencode(repo.path), path)
+        ensure_dir_exists(os.path.dirname(full_path))
+        blob = repo.object_store[sha]
+        build_file_from_blob(blob, mode, full_path)
+        if not mrg_results.needs_to_be_hand_merged(path):
+            to_stage_relpaths.append(path)
+    # finally stage those changed files that can be staged
+    if len(to_stage_relpaths) > 0:
+        repo.stage(to_stage_relpaths)
+
+    # FIXME: to match git merge we should go ahead and commit things
+    # if need_to_be_hand_merged is empty
 
     return mrg_results

@@ -86,6 +86,8 @@ from dulwich.porcelain import (
     DEFAULT_ENCODING
 )
 
+from dulwich.porcelain import status as porcelain_status
+
 from graph_fixed import (
     can_fast_forward,
     find_merge_base,
@@ -97,6 +99,54 @@ from merge_addl import (
     MergeResults,
     MergeConflict
 )
+
+
+def repo_is_clean(repo):
+    """Checks if repo is clean, ie. working dir contents match head, nothing staged,
+       and no untracked files
+
+    Args:
+      repo: Path to repository
+    Returns: True if clean, False otherwise
+    """
+    (staged, unstaged, untracked) = porcelain_status(repo)
+    is_clean = len(staged["add"]) == 0
+    is_clean = is_clean and len(staged["delete"]) == 0
+    is_clean = is_clean and len(staged["modify"]) == 0
+    is_clean = is_clean and len(unstaged) == 0
+    is_clean = is_clean and len(untracked) == 0
+    return is_clean
+
+def print_repo_status(repo):
+    """print status of repo
+
+    Args:
+      repo: Path to repository
+    Returns: void
+    """
+    summary = {}
+    (staged, unstaged, untracked) = porcelain_status(repo)
+    for path in staged["add"]:
+        summary[path] = "new file"
+    for path in staged["delete"]:
+        summary[path] = "removed"
+    for path in staged["modify"]:
+        summary[path] = "modified"
+    paths = [key for key in summary]
+    paths.sort()
+    if len(paths) > 0:
+        print("Changes to be committed:")
+        for path in paths:
+            print('    ', summary[path], path)
+    if len(unstaged) > 0:
+        print("Changes not staged for commit:")
+        for path in unstaged:
+            print('    ', "unstaged", path)
+    if len(untracked) > 0:
+        print("Untracked files:")
+        for path in untracked:
+            print('    ', "no track", path)
+
 
 def diff_tree(repo, old_tree, new_tree, outstream=default_bytes_out_stream):
     """Compares the content and mode of blobs found via two tree objects.
@@ -156,22 +206,26 @@ def _walk_working_dir_paths(frompath, basepath, prune_dirnames=None):
             dirnames[:] = prune_dirnames(dirpath, dirnames)
 
 
-def branch_merge(repo, committishs, file_merger=None, update_working_dir=True):
+def branch_merge(repo, committishs, file_merger=None):
     """Perform merge of set of commits representing branch heads
     Args:
-      repo:               Repository in which the commits live
+      repo:               Repository path
       committishs:        List of committish entries
       file_merger:        routine to perform the 3-way merge
-      update_working_dir: write change entries to current working directory
     Returns:
       MergeResults object
     """
-    with open_repo_closing(repo) as r:
-        commits = [parse_commit(r, committish).id
-                   for committish in committishs]
-        mrg_results = merge(r, commits, rename_detector=None, file_merger=file_merger, update_working_dir=update_working_dir)
-        return mrg_results
-
+    if repo_is_clean(repo):
+        with open_repo_closing(repo) as r:
+            commits = [parse_commit(r, committish).id
+                       for committish in committishs]
+            mrg_results = merge(r, commits, rename_detector=None, file_merger=file_merger)
+    else:
+        mrg_results = MergeResults()
+        conflict = MergeConflict(committishs[0], committishs[1], None, "Merge aborted because repo is not clean")
+        mrg_results.add_fatal_conflict(conflict)
+    return mrg_results
+     
 
 def merge_base(repo, committishs, all=False, octopus=False):
     """Find the merge base to use for a set of commits.
