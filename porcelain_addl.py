@@ -87,6 +87,7 @@ from dulwich.porcelain import (
 )
 
 from dulwich.porcelain import status as porcelain_status
+from dulwich.porcelain import commit as porcelain_commit
 
 from graph_fixed import (
     can_fast_forward,
@@ -99,6 +100,8 @@ from merge_addl import (
     MergeResults,
     MergeConflict
 )
+
+from diffstat import diffstat
 
 
 def repo_is_clean(repo):
@@ -116,6 +119,7 @@ def repo_is_clean(repo):
     is_clean = is_clean and len(unstaged) == 0
     is_clean = is_clean and len(untracked) == 0
     return is_clean
+
 
 def print_repo_status(repo):
     """print status of repo
@@ -138,15 +142,30 @@ def print_repo_status(repo):
         print("Changes to be committed:")
         for path in paths:
             print('    ', summary[path], path)
+        print('')
     if len(unstaged) > 0:
         print("Changes not staged for commit:")
         for path in unstaged:
             print('    ', "unstaged", path)
+        print('')
     if len(untracked) > 0:
         print("Untracked files:")
         for path in untracked:
             print('    ', "no track", path)
+        print('')
 
+
+def print_diffstats_of_merge_changes(repo, old_tree, new_tree):
+    with open_repo_closing(repo) as r:
+        adiff = b""
+        with BytesIO() as diffstream:
+            write_tree_diff(diffstream, r.object_store, old_tree, new_tree)
+            diffstream.seek(0)
+            adiff = diffstream.getvalue()
+        dsum = diffstat(adiff.split(b'\n'))
+        print(dsum.decode('utf-8'))
+        print("\n\n")
+    
 
 def diff_tree(repo, old_tree, new_tree, outstream=default_bytes_out_stream):
     """Compares the content and mode of blobs found via two tree objects.
@@ -215,17 +234,41 @@ def branch_merge(repo, committishs, file_merger=None):
     Returns:
       MergeResults object
     """
+    if len(committishs) != 2:
+        mrg_results = MergeResults()
+        conflict = MergeConflict("", "", "", "Merge aborted because 2 branches were not supplied")
+        mrg_results.add_fatal_conflict(conflict)
+        return mrg_results
+        
+    this_commit = None
     if repo_is_clean(repo):
         with open_repo_closing(repo) as r:
             commits = [parse_commit(r, committish).id
                        for committish in committishs]
+            this_commit = commits[0]
             mrg_results = merge(r, commits, rename_detector=None, file_merger=file_merger)
     else:
         mrg_results = MergeResults()
-        conflict = MergeConflict(committishs[0], committishs[1], None, "Merge aborted because repo is not clean")
+        conflict = MergeConflict(committishs[0], committishs[1], "", "Merge aborted because repo is not clean")
         mrg_results.add_fatal_conflict(conflict)
+        return mrg_results
+
+    # if no conflicts of any sort go ahead and commit the results of the merge
+    if mrg_results.merge_complete() and not mrg_results.has_chunk_conflicts():
+        message = "merging " + committishs[0] + " and " + committishs[1]
+        message = message.encode('utf-8')
+        merge_commit = porcelain_commit(repo, message)
+        old_tree = None
+        new_tree = None
+        with open_repo_closing(repo) as r:
+            old_tree = r.object_store[this_commit].tree
+            new_tree = r.object_store[merge_commit].tree
+        # now print diffstat summary of changes from merge to screen
+        if old_tree and new_tree:
+            print_diffstats_of_merge_changes(repo, old_tree, new_tree)
+
     return mrg_results
-     
+        
 
 def merge_base(repo, committishs, all=False, octopus=False):
     """Find the merge base to use for a set of commits.

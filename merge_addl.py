@@ -296,8 +296,9 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None):
     # working dir, and staging those that have no chunk level conflict
     # (ie. no need to be hand merged)
     to_stage_relpaths = []
+    
+    # first update the working directory with the results of the merge
     for entry in mrg_results.updated_tree_entry_iterator():
-        # first update the working directory with the results of the merge
         (path, mode, sha) = entry
         full_path = os.path.join(os.fsencode(repo.path), path)
         ensure_dir_exists(os.path.dirname(full_path))
@@ -305,11 +306,11 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None):
         build_file_from_blob(blob, mode, full_path)
         if not mrg_results.needs_to_be_hand_merged(path):
             to_stage_relpaths.append(path)
+    
     # finally stage those changed files that can be staged
     if len(to_stage_relpaths) > 0:
         repo.stage(to_stage_relpaths)
 
-    # FIXME: to match git merge we should go ahead and commit things
-    # if need_to_be_hand_merged is empty
+    # let caller decide if they want to commit if no chunk conflicts exist
 
     return mrg_results
