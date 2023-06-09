@@ -225,6 +225,8 @@ class Merge3Way(object):
             self.chunks.append(bc)
         elif oc == bc:
             self.chunks.append(ac)
+        elif ac == bc:
+            self.chunks.append(ac)
         else:
             # conflict
             self.conflicts.append((o_range, a_range, b_range))
