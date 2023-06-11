@@ -21,7 +21,8 @@ import porcelain_addl
 
 from diff3merge import ( # noqa F401
     do_file_merge_myers,
-    do_file_merge_ndiff
+    do_file_merge_ndiff,
+    do_file_merge_histogram
 )
 
 from merge_addl import (
@@ -38,7 +39,9 @@ def main():
     print("merge base: ", mb)
     # print(porcelain_addl.merge_base_is_ancestor(".", mb, "master"))
     # print(porcelain_addl.merge_base_is_ancestor(".", mb, "embed-pdf"))
-    mrg_results = porcelain_addl.branch_merge(".", ["master", "embed-pdf"], do_file_merge_ndiff)
+    # mrg_results = porcelain_addl.branch_merge(".", ["master", "embed-pdf"], do_file_merge_ndiff)
+    # mrg_results = porcelain_addl.branch_merge(".", ["master", "embed-pdf"], do_file_merge_myers)
+    mrg_results = porcelain_addl.branch_merge(".", ["master", "embed-pdf"], do_file_merge_histogram)
     if mrg_results.merge_complete():
         print("Merge Complete")
     else:

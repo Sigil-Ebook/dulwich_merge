@@ -17,6 +17,7 @@ Implementation of a diff3 approach to perform a 3-way merge
 
 import sys
 from myersdiff import myers_diff
+from histogramdiff import HistogramDiffer
 from difflib import diff_bytes, ndiff
 
 
@@ -32,6 +33,23 @@ def do_file_merge_myers(alice, bob, ancestor):
            list of any conflict ranges
     """
     mrg3 = Merge3Way(ancestor, alice, bob, "myers")
+    res = mrg3.merge()
+    conflicts = mrg3.get_conflicts()
+    return (res, conflicts)
+
+
+def do_file_merge_histogram(alice, bob, ancestor):
+    """Merge alice and bob based on their common ancestor
+       Uses Histogram diff to perform matching
+       Args:
+           alice     - bytestring contents of a file to merge
+           bob       - bytestring contents of another file to merge
+           ancestor  - bytestring contents of ancestor common to alice and bob
+       Returns:
+           tuple of bytestring result of merge of alice with bob and
+           list of any conflict ranges
+    """
+    mrg3 = Merge3Way(ancestor, alice, bob, "histogram")
     res = mrg3.merge()
     conflicts = mrg3.get_conflicts()
     return (res, conflicts)
@@ -65,7 +83,7 @@ class Merge3Way(object):
                ancestor  - btyestring of common ancestor to alice and bob
                alice     - bytestring to be merged with bob
                bob       - bytestring to be merged with alice
-               diff_type - type of diff to use "myers" or "ndiff"
+               diff_type - type of diff to use "myers", "ndiff", or "histogram"
            Returns:
                instance of Merge3Way class
         """
@@ -76,13 +94,16 @@ class Merge3Way(object):
         self.a_lines = alice.splitlines(True)
         self.b_lines = bob.splitlines(True)
         self.conflicts = []
-        if diff_type in ('myers', 'Myers', 'MYERS',
-                         b'myers', b'Myers', b'MYERS'):
+        if diff_type.lower() == "myers":
             self.a_matches = self._myers_matches(self.o_lines, self.a_lines)
             self.b_matches = self._myers_matches(self.o_lines, self.b_lines)
-        else:
+        elif diff_type.lower() == "ndiff":
             self.a_matches = self._ndiff_matches(self.o_lines, self.a_lines)
             self.b_matches = self._ndiff_matches(self.o_lines, self.b_lines)
+        else:
+            # otherwise use histogram diff
+            self.a_matches = self._histogram_matches(self.o_lines, self.a_lines)
+            self.b_matches = self._histogram_matches(self.o_lines, self.b_lines)
         self.chunks = []
         self.on, self.an, self.bn = 0, 0, 0
 
@@ -149,7 +170,32 @@ class Merge3Way(object):
             elif dt == b'- ':
                 on += 1
         return matches
+    
+    def _histogram_matches(self, olines, dlines):
+        """ Uses histogram diff implementation to find matching lines
+            in ancestor and alice or bob
+            Args:
+               olines - list of bytestrings of ancestor
+               dlines - list of bytestrings of either alice or bob
+            Returns:
+               dictionary mapping matching line numbers in ancestor to other
+        """
+        on, dn = 0, 0
+        matches = {}
+        hd = HistogramDiffer(olines, dlines)
+        for line in hd.histdiff():
+            dt = line[0:2]
+            if dt == b'  ':
+                on += 1
+                dn += 1
+                matches[on] = dn
+            elif dt == b'+ ':
+                dn += 1
+            elif dt == b'- ':
+                on += 1
+        return matches
 
+    
     def _generate_chunks(self):
         """ generate a list of chunks where each chunk represents
             either of matching region or non-matching region
