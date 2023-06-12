@@ -1,5 +1,6 @@
 # merge.py -- Merge support in Dulwich
 # Copyright (C) 2020 Jelmer Vernooij <jelmer@jelmer.uk>
+# Additions and changes (C) 2023 Kevin B. Hendricks, Stratford Ontario Canada
 #
 # Dulwich is dual-licensed under the Apache License, Version 2.0 and the GNU
 # General Public License as public by the Free Software Foundation; version 2.0
@@ -34,6 +35,8 @@ from dulwich.repo import Repo
 
 from dulwich.objects import TreeEntry
 
+from dulwich.patch import is_binary
+
 from dulwich.diff_tree import (
     tree_changes,
     CHANGE_ADD,
@@ -49,16 +52,20 @@ from dulwich.objects import Blob
 
 from graph_fixed import find_merge_base
 
+MergeConflict = namedtuple('Conflict', ['this_entry', 'other_entry', 'base_entry', 'message'])
 
-class MergeConflict(namedtuple(
-        'MergeConflict',
-        ['this_entry', 'other_entry', 'base_entry', 'message'])):
+class MergeConflictEx(Exception):
+    def __init__(self, this_entry, other_entry, base_entry, message):
+        super().__init__(message)
+        self.conflict = MergeConflict(this_entry, other_entry, base_entry, message) 
     """A merge conflict."""
 
+class NotImplementedEx(Exception):
+    def __init__(self, message):
+        super().__init__(message)
 
-    
 def _merge_entry(new_path, object_store, this_entry,
-                 other_entry, base_entry, file_merger):
+                 other_entry, base_entry, file_merger, strategy):
     """ 3 way merge an entry
         Args:
            new_path:      repo relative file path
@@ -67,55 +74,70 @@ def _merge_entry(new_path, object_store, this_entry,
            other_entry:   other TreeEntry for file
            base_entry:    TreeEntry for common ancestor
            file_merger:   routine to handle the3 actual file merge
+           strategy:      merge strategy (supports "ort", "ort-ours", "ort-theirs")
+                          see https://git-scm.com/docs/merge-strategies
         Returns:
            TreeEntry for merged file, List of Chunk Level Conflicts
         Raises:
-           MergeConflict: to indicate fatal conflict preventing merge
-           NotImplementedError
+           MergeConflictEx: to indicate fatal conflict preventing merge
+           NotImplementedEx
     """
        
     chunk_conflicts = []
     if file_merger is None:
-        raise MergeConflict(
+        raise MergeConflictEx(
             this_entry, other_entry,
             other_entry.old,
             'Conflict in %s but no file merger provided'
             % new_path)
-    (merged_text, conflict_list) = file_merger(
-        object_store[this_entry.sha].as_raw_string(),
-        object_store[other_entry.sha].as_raw_string(),
-        object_store[base_entry.sha].as_raw_string())
+    this_content = object_store[this_entry.sha].as_raw_string()
+    other_content =  object_store[other_entry.sha].as_raw_string()
+    base_content = object_store[base_entry.sha].as_raw_string()
+    if is_binary(this_content) or is_binary(other_content) or is_binary(base_content):
+        if (this_content != other_content):
+            if strategy == "ort-ours":
+                return TreeEntry(this_entry.path, this_entry.mode, this_entry.sha), chunk_conflicts
+            elif strategy == "ort-theirs":
+                return TreeEntry(other_entry.path, other_entry.mode, other_entry.sha), chunk_conflicts
+            else:
+                raise MergeConflictEx(this_entry, other_entry, base_entry,'3 way diff and merge of binary files not supported %s' % this_entry.path) 
+        else:
+            return TreeEntry(this_entry.path, this_entry.mode, this_entry.sha), chunk_conflicts
+
+    (merged_text, conflict_list) = file_merger(this_content, other_content, base_content, strategy)
+    
     for (range_o, range_a, range_b) in conflict_list:
         chunk_conflicts.append((new_path, range_o, range_a, range_b))
     merged_text_blob = Blob.from_string(merged_text)
     object_store.add_object(merged_text_blob)
-    # TODO(jelmer): Report conflicts, if any?
     if this_entry.mode in (base_entry.mode, other_entry.mode):
         mode = other_entry.mode
     else:
         if base_entry.mode != other_entry.mode:
             # TODO(jelmer): Add a mode conflict
-            raise NotImplementedError
+            raise NotImplementedEx('tree entry mode changes are not supported')
         mode = this_entry.mode
     return TreeEntry(new_path, mode, merged_text_blob.id), chunk_conflicts
 
 
 def merge_tree(object_store, this_tree, other_tree, common_tree,
-               rename_detector=None, file_merger=None):
+               rename_detector=None, file_merger=None, strategy="ort"):
     """Merge two trees.
 
     Args:
-      object_store: object store to retrieve objects from
-      this_tree: Tree id of THIS tree (aka alice)
-      other_tree: Tree id of OTHER tree (aka bob)
-      common_tree: Tree id of COMMON tree (aka ancestor or orignal)
+      object_store:    object store to retrieve objects from
+      this_tree:       tree id of THIS tree (aka alice)
+      other_tree:      tree id of OTHER tree (aka bob)
+      common_tree:     tree id of COMMON tree (aka ancestor or orignal)
       rename_detector: Rename detector object (see dulwich.diff_tree)
-      file_merger: Three-way file merge implementation
+      file_merger:     3-way file merge implementation
+      strategy:        file merge strategy (supports "ort", "ort-ours", "ort-theirs")
+                          see https://git-scm.com/docs/merge-strategies
     Returns:
       iterator over changed objects: tuple of TreeEntry, chunk conflict list)
     Raises:
-      MergeConflict (indicating a conflict preventing a merge)
-      NotImplementedError
+      MergeConflictEx (indicating a conflict preventing a merge)
+      NotImplementedEx
     """
     changes_this = tree_changes(object_store, common_tree, this_tree)
     changes_this_by_common_path = {
@@ -135,14 +157,14 @@ def merge_tree(object_store, this_tree, other_tree, common_tree,
                 if this_entry != other_change.new:
                     # TODO(jelmer): Three way merge instead, with empty common
                     # base?
-                    raise MergeConflict(
+                    raise MergeConflictEx(
                         this_entry, other_change.new, other_change.old,
                         'Both this and other add new file %s' %
                         other_change.new.path)
         elif other_change.type == CHANGE_DELETE:
             if this_change and this_change.type not in (
                     CHANGE_DELETE, CHANGE_UNCHANGED):
-                raise MergeConflict(
+                raise MergeConflictEx(
                     this_change.new, other_change.new, other_change.old,
                     '%s is deleted in other but modified in this' %
                     other_change.old.path)
@@ -152,7 +174,7 @@ def merge_tree(object_store, this_tree, other_tree, common_tree,
             if this_change and this_change.type == CHANGE_RENAME:
                 if this_change.new.path != other_change.new.path:
                     # TODO(jelmer): Does this need to be a conflict?
-                    raise MergeConflict(
+                    raise MergeConflictEx(
                         this_change.new, other_change.new, other_change.old,
                         '%s was renamed by both sides (%s / %s)'
                         % (other_change.old.path, other_change.new.path,
@@ -161,25 +183,24 @@ def merge_tree(object_store, this_tree, other_tree, common_tree,
                     yield _merge_entry(
                         other_change.new.path,
                         object_store, this_change.new, other_change.new,
-                        other_change.old, file_merger=file_merger)
+                        other_change.old, file_merger=file_merger, strategy=strategy)
             elif this_change and this_change.type == CHANGE_MODIFY:
                 yield _merge_entry(
                     other_change.new.path,
                     object_store, this_change.new, other_change.new,
-                    other_change.old, file_merger=file_merger)
+                    other_change.old, file_merger=file_merger, strategy=strategy)
             elif this_change and this_change.type == CHANGE_DELETE:
-                raise MergeConflict(
+                raise MergeConflictEx(
                     this_change.new, other_change.new, other_change.old,
                     '%s is deleted in this but renamed to %s in other' %
                     (other_change.old.path, other_change.new.path))
             elif this_change:
-                raise NotImplementedError(
-                    '%r and %r' % (this_change, other_change))
+                raise NotImplementedEx('%r and %r' % (this_change, other_change))
             else:
                 yield TreeEntry(other_change.new.path, other_change.new.mode, other_change.new.sha), []
         elif other_change.type == CHANGE_MODIFY:
             if this_change and this_change.type == CHANGE_DELETE:
-                raise MergeConflict(
+                raise MergeConflictEx(
                     this_change.new, other_change.new, other_change.old,
                     '%s is deleted in this but modified in other' %
                     other_change.old.path)
@@ -190,14 +211,15 @@ def merge_tree(object_store, this_tree, other_tree, common_tree,
                                    this_change.new,
                                    other_change.new,
                                    other_change.old,
-                                   file_merger=file_merger)
+                                   file_merger=file_merger,
+                                   strategy=strategy)
             elif this_change:
-                raise NotImplementedError(
+                raise NotImplementedEx(
                     '%r and %r' % (this_change, other_change))
             else:
                 yield TreeEntry(other_change.new.path, other_change.new.mode, other_change.new.sha), []
         else:
-            raise NotImplementedError(
+            raise NotImplementedEx(
                 'unsupported change type: %r' % other_change.type)
 
 
@@ -247,13 +269,15 @@ def tree_entry_iterator(store, treeid, base):
             yield from tree_entry_iterator(store, sha, name)
 
 
-def merge(repo, commit_ids, rename_detector=None, file_merger=None):
+def merge(repo, commit_ids, rename_detector=None, file_merger=None, strategy="ort"):
     """Perform a merge.
     Args:
-      repo: Repository object
-      commit_ids: list of commit ids (shas with first entry being this and the remaining being other)
+      repo:            repository object
+      commit_ids:      list of commit ids (shas with first entry being this and the remaining being other)
       rename_detector: routine to detect files that have been renamed
-      file_merger: routine to perform the actual merging of files
+      file_merger:     routine to perform the actual merging of files
+      strategy:        merge strategy (supports "ort", "ort-ours", "ort-theirs")
+                          see https://git-scm.com/docs/merge-strategies
     Returns:
       MergeResults object
     """
@@ -274,19 +298,20 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None):
                 repo.object_store[other_commit].tree,
                 repo.object_store[merge_base].tree,
                 rename_detector=rename_detector,
-                file_merger=file_merger):
+                file_merger=file_merger,
+                strategy=strategy):
 
             # store MergeResults
             mrg_results.add_entry(entry)
             for (apath, range_o, range_a, range_b ) in chunk_conflicts:
                 mrg_results.add_chunk_conflict((apath, range_o, range_a, range_b))
               
-    except MergeConflict as exc:
+    except MergeConflictEx as exc:
         print(exc.message)
-        mrg_results.add_fatal_conflict(exc)
+        mrg_results.add_fatal_conflict(exc.conflict)
         return mrg_results
     
-    except NotImplemented as exc:
+    except NotImplementedEx as exc:
         print(exc.message)
         mrg_results.add_fatal_conflict(exc)
         return mrg_results

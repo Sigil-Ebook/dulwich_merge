@@ -225,12 +225,15 @@ def _walk_working_dir_paths(frompath, basepath, prune_dirnames=None):
             dirnames[:] = prune_dirnames(dirpath, dirnames)
 
 
-def branch_merge(repo, committishs, file_merger=None):
+def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     """Perform merge of set of commits representing branch heads
     Args:
       repo:               Repository path
       committishs:        List of committish entries
-      file_merger:        routine to perform the 3-way merge
+      file_merger:        Routine to perform the 3-way merge
+      strategy            Merge Strategy supported values: "ort", "ort-ours", "ort-theirs"
+                              see https://git-scm.com/docs/merge-strategies
+      
     Returns:
       MergeResults object
     """
@@ -246,7 +249,7 @@ def branch_merge(repo, committishs, file_merger=None):
             commits = [parse_commit(r, committish).id
                        for committish in committishs]
             this_commit = commits[0]
-            mrg_results = merge(r, commits, rename_detector=None, file_merger=file_merger)
+            mrg_results = merge(r, commits, rename_detector=None, file_merger=file_merger, strategy=strategy)
     else:
         mrg_results = MergeResults()
         conflict = MergeConflict(committishs[0], committishs[1], "", "Merge aborted because repo is not clean")
