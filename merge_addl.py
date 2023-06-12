@@ -1,6 +1,6 @@
 # merge.py -- Merge support in Dulwich
 # Copyright (C) 2020 Jelmer Vernooij <jelmer@jelmer.uk>
-# Additions and changes (C) 2023 Kevin B. Hendricks, Stratford Ontario Canada
+# Copyright (C) 2023 Kevin B. Hendricks, Stratford Ontario Canada
 #
 # Dulwich is dual-licensed under the Apache License, Version 2.0 and the GNU
 # General Public License as public by the Free Software Foundation; version 2.0
@@ -27,13 +27,13 @@ import posixpath
 
 from collections import namedtuple
 
-from dulwich.index import build_file_from_blob
+from dulwich.index import build_file_from_blob, pathsplit, pathjoin
 
 from dulwich.file import ensure_dir_exists
 
 from dulwich.repo import Repo
 
-from dulwich.objects import TreeEntry
+from dulwich.objects import TreeEntry, Tree, Blob
 
 from dulwich.patch import is_binary
 
@@ -47,12 +47,11 @@ from dulwich.diff_tree import (
     CHANGE_UNCHANGED,
     )
 
-from dulwich.objects import Blob
-
-
 from graph_fixed import find_merge_base
 
+
 MergeConflict = namedtuple('Conflict', ['this_entry', 'other_entry', 'base_entry', 'message'])
+
 
 class MergeConflictEx(Exception):
     def __init__(self, this_entry, other_entry, base_entry, message):
@@ -60,9 +59,65 @@ class MergeConflictEx(Exception):
         self.conflict = MergeConflict(this_entry, other_entry, base_entry, message) 
     """A merge conflict."""
 
+
 class NotImplementedEx(Exception):
     def __init__(self, message):
         super().__init__(message)
+
+
+# walk a a tree of trees
+def tree_entry_iterator(store, treeid, base=None):
+    for (name, mode, sha) in store[treeid].iteritems():
+        if base:
+            name = posixpath.join(base, name)
+        yield TreeEntry(name, mode, sha)
+        if stat.S_ISDIR(mode):
+            yield from tree_entry_iterator(store, sha, name)
+
+
+def create_and_store_merged_tree(object_store, merged_tree):
+    """create a new merged tree, store it in object_store and return is id
+
+    FIXME: taken almost unchanged from index.py commit_tree which for some unknown reason uses
+           a different entry order (path, sha, mode) than the TreeEntries (path, mode, sha) we use
+    Args:
+      object_store: Object store to add trees to
+      merged_tree: list of TreeEntries (path, mode, sha)
+    Returns:
+      SHA1 of the new tree.
+    """
+    trees: Dict[bytes, Any] = {b"": {}}
+
+    def add_tree(path):
+        if path in trees:
+            return trees[path]
+        dirname, basename = pathsplit(path)
+        t = add_tree(dirname)
+        assert isinstance(basename, bytes)
+        newtree = {}
+        t[basename] = newtree
+        trees[path] = newtree
+        return newtree
+
+    def build_tree(path):
+        tree = Tree()
+        for basename, entry in trees[path].items():
+            if isinstance(entry, dict):
+                mode = stat.S_IFDIR
+                sha = build_tree(pathjoin(path, basename))
+            else:
+                (mode, sha) = entry
+            tree.add(basename, mode, sha)
+        object_store.add_object(tree)
+        return tree.id
+
+    for path, mode, sha in merged_tree:
+        tree_path, basename = pathsplit(path)
+        tree = add_tree(tree_path)
+        tree[basename] = (mode, sha)
+
+    return build_tree(b"")
+
 
 def _merge_entry(new_path, object_store, this_entry,
                  other_entry, base_entry, file_merger, strategy):
@@ -93,6 +148,7 @@ def _merge_entry(new_path, object_store, this_entry,
     this_content = object_store[this_entry.sha].as_raw_string()
     other_content =  object_store[other_entry.sha].as_raw_string()
     base_content = object_store[base_entry.sha].as_raw_string()
+    # handle when binary files detected
     if is_binary(this_content) or is_binary(other_content) or is_binary(base_content):
         if (this_content != other_content):
             if strategy == "ort-ours":
@@ -104,17 +160,18 @@ def _merge_entry(new_path, object_store, this_entry,
         else:
             return TreeEntry(this_entry.path, this_entry.mode, this_entry.sha), chunk_conflicts
 
+    # use diff3merge to handle the actual merging
     (merged_text, conflict_list) = file_merger(this_content, other_content, base_content, strategy)
     
     for (range_o, range_a, range_b) in conflict_list:
         chunk_conflicts.append((new_path, range_o, range_a, range_b))
+
     merged_text_blob = Blob.from_string(merged_text)
     object_store.add_object(merged_text_blob)
     if this_entry.mode in (base_entry.mode, other_entry.mode):
         mode = other_entry.mode
     else:
         if base_entry.mode != other_entry.mode:
-            # TODO(jelmer): Add a mode conflict
             raise NotImplementedEx('tree entry mode changes are not supported')
         mode = this_entry.mode
     return TreeEntry(new_path, mode, merged_text_blob.id), chunk_conflicts
@@ -230,6 +287,7 @@ class MergeResults(object):
         self.chunk_conflicts = []
         self.hand_merge_set = set()
         self.updated_tree_entries = []
+        self.tree_id = None
 
     def add_entry(self, entry):
         self.updated_tree_entries.append(entry)
@@ -260,14 +318,6 @@ class MergeResults(object):
             yield conflict
 
 
-def tree_entry_iterator(store, treeid, base):
-    for (name, mode, sha) in store[treeid].iteritems():
-        if base:
-            name = posixpath.join(base, name)
-        yield TreeEntry(name, mode, sha)
-        if stat.S_ISDIR(mode):
-            yield from tree_entry_iterator(store, sha, name)
-
 
 def merge(repo, commit_ids, rename_detector=None, file_merger=None, strategy="ort"):
     """Perform a merge.
@@ -283,20 +333,30 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None, strategy="or
     """
     mrg_results = MergeResults()
     lcas = find_merge_base(repo, commit_ids)
+    
+    # FIXME: technically if multiple lcas are found we should be
+    # merging each lcas to find the proper "recursive" merge base
+    
     if lcas:
         merge_base = lcas[0]
-    # what if no merge base exists?
-    #   should we set merge_base to this or other or ...
+
+    # FIXME: We should abort if no merge base exists at it is
+    # required for a 3-way merge
+
     [this_commit, other_commit] = commit_ids
 
+    this_tree_id = repo.object_store[this_commit].tree
+    other_tree_id = repo.object_store[other_commit].tree
+    base_tree_id = repo.object_store[merge_base].tree
+
     # to prevent corruption walk all changed entries first
-    # before touching working dir or staging changes for commit
+    # before trying to build the merged tree
     try: 
         for entry, chunk_conflicts in merge_tree(
                 repo.object_store,
-                repo.object_store[this_commit].tree,
-                repo.object_store[other_commit].tree,
-                repo.object_store[merge_base].tree,
+                this_tree_id,
+                other_tree_id,
+                base_tree_id,
                 rename_detector=rename_detector,
                 file_merger=file_merger,
                 strategy=strategy):
@@ -317,12 +377,36 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None, strategy="or
         return mrg_results
 
     # if reached here there were no fatal conflicts
-    # so walk the updated entries writing the results to the
-    # working dir, and staging those that have no chunk level conflict
-    # (ie. no need to be hand merged)
+
+    # create a sort list of merged tree entries and store it
+    merged_tree = {}
+    for (path, mode, sha) in tree_entry_iterator(repo.object_store, this_tree_id):
+        merged_tree[path] = (mode, sha)
+    for (path, mode, sha) in mrg_results.updated_tree_entry_iterator():
+        merged_tree[path] = (mode, sha)
+    merged_tree_entries = []
+    paths = list(merged_tree.keys())
+    paths.sort()
+    for apath in paths:
+        (mode, sha) = merged_tree[apath]
+        merged_tree_entries.append(TreeEntry(path, mode, sha))
+
+    mrg_results.tree_id = create_and_store_merged_tree(repo.object_store, merged_tree_entries)
+
+    # FIXME: The remainder of this should probably be made controllable by options passed in to merge
+    #        But given the number of merge options (myers, histogram, ndiff)
+    #        and the possible stratgies: ort, ort-ours, ort-theirs, perhaps a namedtuple called
+    #        MergeOptions should be created and passed in and perhaps include the following:
+    #           do_update_working_dir T/F
+    #           do_stage T/F 
+    #           do_commit: T/F which implies both do_update_working_dir and do_stage both true 
+
+    # FIXME: Or instead of a MergeOptions approach we simplify this
+    # routine and return the merged tree id inside MergeResults
+    # and let the caller handle all the rest
+
+    # For now lets update the working dir and stage the results
     to_stage_relpaths = []
-    
-    # first update the working directory with the results of the merge
     for entry in mrg_results.updated_tree_entry_iterator():
         (path, mode, sha) = entry
         full_path = os.path.join(os.fsencode(repo.path), path)
@@ -331,11 +415,10 @@ def merge(repo, commit_ids, rename_detector=None, file_merger=None, strategy="or
         build_file_from_blob(blob, mode, full_path)
         if not mrg_results.needs_to_be_hand_merged(path):
             to_stage_relpaths.append(path)
-    
-    # finally stage those changed files that can be staged
     if len(to_stage_relpaths) > 0:
         repo.stage(to_stage_relpaths)
 
-    # let caller decide if they want to commit if no chunk conflicts exist
+    # FIXME: should we also commit here if no chunk conflicts exist?
+    #        or let the caller decide
 
     return mrg_results

@@ -257,6 +257,7 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
         return mrg_results
 
     # if no conflicts of any sort go ahead and commit the results of the merge
+    # that exists in the working directory
     if mrg_results.merge_complete() and not mrg_results.has_chunk_conflicts():
         message = "merging " + committishs[0] + " and " + committishs[1]
         message = message.encode('utf-8')

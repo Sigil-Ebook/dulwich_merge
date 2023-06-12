@@ -39,9 +39,9 @@ def main():
     print("merge base: ", mb)
     # print(porcelain_addl.merge_base_is_ancestor(".", mb, "master"))
     # print(porcelain_addl.merge_base_is_ancestor(".", mb, "embed-pdf"))
-    # mrg_results = porcelain_addl.branch_merge(".", ["master", "embed-pdf"], do_file_merge_ndiff, strategy="ort")
+    # mrg_results = porcelain_addl.branch_merge(".", ["master", "embed-pdf"], do_file_merge_ndiff, strategy="ort-ours")
     # mrg_results = porcelain_addl.branch_merge(".", ["master", "embed-pdf"], do_file_merge_myers, strategy="ort-theirs")
-    mrg_results = porcelain_addl.branch_merge(".", ["master", "embed-pdf"], do_file_merge_histogram, strategy="ort-ours")
+    mrg_results = porcelain_addl.branch_merge(".", ["master", "embed-pdf"], do_file_merge_histogram, strategy="ort")
     if mrg_results.merge_complete():
         print("Merge Complete")
     else:
