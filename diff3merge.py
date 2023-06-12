@@ -21,52 +21,58 @@ from histogramdiff import HistogramDiffer
 from difflib import diff_bytes, ndiff
 
 
-def do_file_merge_myers(alice, bob, ancestor):
+def do_file_merge_myers(alice, bob, ancestor, strategy):
     """Merge alice and bob based on their common ancestor
        Uses Myers diff to perform matching
        Args:
            alice     - bytestring contents of a file to merge
            bob       - bytestring contents of another file to merge
            ancestor  - bytestring contents of ancestor common to alice and bob
+           strategy  - merge strategy ("ort", "ort-ours", "ort-theirs")
+                       see https://git-scm.com/docs/merge-strategies
        Returns:
            tuple of bytestring result of merge of alice with bob and
            list of any conflict ranges
     """
-    mrg3 = Merge3Way(ancestor, alice, bob, "myers")
+    mrg3 = Merge3Way(ancestor, alice, bob, "myers", strategy)
     res = mrg3.merge()
     conflicts = mrg3.get_conflicts()
     return (res, conflicts)
 
 
-def do_file_merge_histogram(alice, bob, ancestor):
+def do_file_merge_histogram(alice, bob, ancestor, strategy):
     """Merge alice and bob based on their common ancestor
        Uses Histogram diff to perform matching
        Args:
            alice     - bytestring contents of a file to merge
            bob       - bytestring contents of another file to merge
            ancestor  - bytestring contents of ancestor common to alice and bob
+           strategy  - merge strategy ("ort", "ort-ours", "ort-theirs")
+                       see https://git-scm.com/docs/merge-strategies
        Returns:
            tuple of bytestring result of merge of alice with bob and
            list of any conflict ranges
     """
-    mrg3 = Merge3Way(ancestor, alice, bob, "histogram")
+    mrg3 = Merge3Way(ancestor, alice, bob, "histogram", strategy)
     res = mrg3.merge()
     conflicts = mrg3.get_conflicts()
     return (res, conflicts)
 
 
-def do_file_merge_ndiff(alice, bob, ancestor):
+def do_file_merge_ndiff(alice, bob, ancestor, strategy):
     """Merge alice and bob based on their common ancestor
        Uses difflib's ndiff (patience diff) to perform matching
        Args:
            alice     - bytestring contents of a file to merge
            bob       - bytestring contents of another file to merge
            ancestor  - bytestring contents of ancestor common to alice and bob
+           strategy  - merge strategy ("ort", "ort-ours", "ort-theirs")
+                       see https://git-scm.com/docs/merge-strategies
        Returns:
            tuple of bytestring result of merge of alice with bob and
            list of any conflict ranges
     """
-    mrg3 = Merge3Way(ancestor, alice, bob, "ndiff")
+    mrg3 = Merge3Way(ancestor, alice, bob, "ndiff", strategy)
     res = mrg3.merge()
     conflicts = mrg3.get_conflicts()
     return (res, conflicts)
@@ -77,13 +83,15 @@ class Merge3Way(object):
        on their common ancestor
     """
 
-    def __init__(self, ancestor, alice, bob, diff_type):
+    def __init__(self, ancestor, alice, bob, diff_type, strategy):
         """ Merge3Way init
            Args:
                ancestor  - btyestring of common ancestor to alice and bob
                alice     - bytestring to be merged with bob
                bob       - bytestring to be merged with alice
                diff_type - type of diff to use "myers", "ndiff", or "histogram"
+               strategy  - merge strategy to use "ort", "ort-ours", or "ort-theirs"
+                           see https://git-scm.com/docs/merge-strategies
            Returns:
                instance of Merge3Way class
         """
@@ -93,6 +101,7 @@ class Merge3Way(object):
         self.o_lines = ancestor.splitlines(True)
         self.a_lines = alice.splitlines(True)
         self.b_lines = bob.splitlines(True)
+        self.strategy = strategy
         self.conflicts = []
         if diff_type.lower() == "myers":
             self.a_matches = self._myers_matches(self.o_lines, self.a_lines)
@@ -274,16 +283,22 @@ class Merge3Way(object):
         elif ac == bc:
             self.chunks.append(ac)
         else:
-            # conflict
-            self.conflicts.append((o_range, a_range, b_range))
-            cc = b'<<<<<<< ' + self.a_file + b'\n'
-            cc += ac
-            cc += b'||||||| ' + self.o_file + b'\n'
-            cc += oc
-            cc += b'======= \n'
-            cc += bc
-            cc += b'>>>>>>> ' + self.b_file + b'\n'
-            self.chunks.append(cc)
+            # use strategy to determine how to handle this potential conflict
+            if self.strategy == "ort-ours":
+                self.chunks.append(ac)
+            elif self.strategy == "ort-theirs":
+                self.chunks.append(bc)
+            else:
+                # defalut "ort" strategy chunk conflict - will need to hand merge
+                self.conflicts.append((o_range, a_range, b_range))
+                cc = b'<<<<<<< ' + self.a_file + b'\n'
+                cc += ac
+                cc += b'||||||| ' + self.o_file + b'\n'
+                cc += oc
+                cc += b'======= \n'
+                cc += bc
+                cc += b'>>>>>>> ' + self.b_file + b'\n'
+                self.chunks.append(cc)
 
     def _emit_chunk(self, o, a, b):
         """Emit chunk at offsets o, a, b in ancestor, alice, and bob"""
