@@ -48,8 +48,10 @@ def main():
         print("Fatal Conflicts Detected")
         print(mrg_results.fatal_conflicts[0])
     if mrg_results.has_chunk_conflicts():
-        for (apath, range_o, range_a, range_b) in mrg_results.chunk_conflict_iterator():
-            print("Chunk Conflict: ", apath, " line ranges (ancestor, this, other): ", range_o, range_a, range_b)
+        for conflict in mrg_results.chunk_conflict_iterator():
+            apath = conflict.this_entry.path
+            message = conflict.message
+            print(apath, message)
     for entry in mrg_results.updated_tree_entry_iterator():
         print(entry)
     porcelain_addl.print_repo_status(".")

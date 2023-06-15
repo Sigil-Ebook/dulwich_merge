@@ -97,6 +97,7 @@ from graph_fixed import (
 
 from merge_addl import (
     merge,
+    MergeOptions,
     MergeResults,
     MergeConflict
 )
@@ -237,9 +238,11 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     Returns:
       MergeResults object
     """
+    moptions = MergeOptions(file_merger, None, strategy)
+    
     if len(committishs) != 2:
         mrg_results = MergeResults()
-        conflict = MergeConflict("", "", "", "Merge aborted because 2 branches were not supplied")
+        conflict = MergeConflict('fatal',"", "", "", "Merge aborted because 2 branches were not supplied")
         mrg_results.add_fatal_conflict(conflict)
         return mrg_results
         
@@ -249,10 +252,10 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
             commits = [parse_commit(r, committish).id
                        for committish in committishs]
             this_commit = commits[0]
-            mrg_results = merge(r, commits, rename_detector=None, file_merger=file_merger, strategy=strategy)
+            mrg_results = merge(r, moptions, commits)
     else:
         mrg_results = MergeResults()
-        conflict = MergeConflict(committishs[0], committishs[1], "", "Merge aborted because repo is not clean")
+        conflict = MergeConflict('fatal', None, None, None, "Merge aborted because repo is not clean")
         mrg_results.add_fatal_conflict(conflict)
         return mrg_results
 
