@@ -208,6 +208,12 @@ class HistogramDiffer(object):
             bi+=1
         return res
 
+    
+    def common_base(self):
+        if self.lcs(0, len(self.fas), 0, len(self.fbs)) == False:
+            return []
+        return self.fds
+
 
     def lcs(self, a0, a1, b0, b1):
         # skip equivalent items at top and bottom
@@ -315,6 +321,13 @@ def main():
     hdiffer = HistogramDiffer(a_lines, b_lines)
     res = hdiffer.histdiff()
     print(b''.join(res).decode('utf-8'), end="")
+
+    # now use histogram base to generate a common base
+    print("\n\ncommon base\n")
+    hdiffer2 = Histogram(a_lines, b_lines)
+    res = hdiffer2.common_base()
+    print(b''.join(res).decode('utf-8'), end="")
+    
     return 0
 
 if __name__ == '__main__':

@@ -20,6 +20,10 @@ from myersdiff import myers_diff
 from histogramdiff import HistogramDiffer
 from difflib import diff_bytes, ndiff
 
+def generate_common_ancestor(alice, bob):
+    hd = HistogramDiffer(alice.splitlines(True), bob.splitlines(True))
+    res = hd.common_base()
+    return b''.join(res)
 
 def do_file_merge_myers(alice, bob, ancestor, strategy):
     """Merge alice and bob based on their common ancestor
@@ -34,7 +38,9 @@ def do_file_merge_myers(alice, bob, ancestor, strategy):
            tuple of bytestring result of merge of alice with bob and
            list of any conflict ranges
     """
-    mrg3 = Merge3Way(ancestor, alice, bob, "myers", strategy)
+    if not ancestor:
+        ancestor = generate_common_ancestor(alice, bob)
+    mrg3 = Merge3Way(alice, bob, ancestor, "myers", strategy)
     res = mrg3.merge()
     conflicts = mrg3.get_conflicts()
     return (res, conflicts)
@@ -53,7 +59,9 @@ def do_file_merge_histogram(alice, bob, ancestor, strategy):
            tuple of bytestring result of merge of alice with bob and
            list of any conflict ranges
     """
-    mrg3 = Merge3Way(ancestor, alice, bob, "histogram", strategy)
+    if not ancestor:
+        ancestor = generate_common_ancestor(alice, bob)
+    mrg3 = Merge3Way(alice, bob, ancestor, "histogram", strategy)
     res = mrg3.merge()
     conflicts = mrg3.get_conflicts()
     return (res, conflicts)
@@ -72,7 +80,9 @@ def do_file_merge_ndiff(alice, bob, ancestor, strategy):
            tuple of bytestring result of merge of alice with bob and
            list of any conflict ranges
     """
-    mrg3 = Merge3Way(ancestor, alice, bob, "ndiff", strategy)
+    if not ancestor == 0:
+        ancestor = generate_common_ancestor(alice, bob)
+    mrg3 = Merge3Way(alice, bob, ancestor, "ndiff", strategy)
     res = mrg3.merge()
     conflicts = mrg3.get_conflicts()
     return (res, conflicts)
@@ -83,12 +93,12 @@ class Merge3Way(object):
        on their common ancestor
     """
 
-    def __init__(self, ancestor, alice, bob, diff_type, strategy):
+    def __init__(self, alice, bob, ancestor, diff_type, strategy):
         """ Merge3Way init
            Args:
-               ancestor  - btyestring of common ancestor to alice and bob
                alice     - bytestring to be merged with bob
                bob       - bytestring to be merged with alice
+               ancestor  - btyestring of common ancestor to alice and bob
                diff_type - type of diff to use "myers", "ndiff", or "histogram"
                strategy  - merge strategy to use "ort", "ort-ours", or "ort-theirs"
                            see https://git-scm.com/docs/merge-strategies
@@ -331,22 +341,31 @@ def main():
     """
     argv = sys.argv
     if len(argv) < 5:
-        print("diff3merge ancestor_path alice_path bob_path myers|ndiff")
+        print("diff3merge alice_path bob_path ancestor_path myers|ndiff|histogram")
         return 0
-    ofile = argv[1]
-    afile = argv[2]
-    bfile = argv[3]
+    afile = argv[1]
+    bfile = argv[2]
+    ofile = argv[3]
     dtype = argv[4]
-    with open(ofile, 'rb') as of:
-        ancestor = of.read()
+    if ofile != "__NONE__":
+        with open(ofile, 'rb') as of:
+            ancestor = of.read()
+    else:
+        ancestor = None
     with open(afile, 'rb') as af:
         alice = af.read()
     with open(bfile, 'rb') as bf:
         bob = bf.read()
     if dtype == "myers":
-        res, conflicts = do_file_merge_myers(alice, bob, ancestor)
+        res, conflicts = do_file_merge_myers(alice, bob, ancestor, "ort")
+    elif dtype == "ndiff":
+        res, conflicts = do_file_merge_ndiff(alice, bob, ancestor, "ort")
+    elif dtype == "histogram":
+        res, conflicts = do_file_merge_histogram(alice, bob, ancestor, "ort")
     else:
-        res, conflicts = do_file_merge_ndiff(alice, bob, ancestor)
+        res = []
+        conflicts=[]
+        print("unrecognized diff type: " + dtyp)
     print(res.decode('utf-8'), end='')
     print(conflicts)
     return 0

@@ -49,6 +49,7 @@ from dulwich.diff_tree import (
 
 from graph_fixed import find_merge_base
 
+_DULWICH_TEST = b"DulwichRecursiveMerge <dulwich@dulwich.com>"
 
 MergeConflict = namedtuple('MergeConflict', ['conflict_type', 'this_entry', 'other_entry', 'base_entry', 'message'])
 #      conflict types are: 'fatal', 'chunk', 'ni'
@@ -131,13 +132,13 @@ def _updated_tree_entries_with_changes(repo, this_tree_id, mrg_results):
 
 
 def _create_virtual_tree_commit(repo, tree_id, parent1, parent2):
-    message = b'virtual commit of parents %s and %s' % (parent1, parent2)
+    print('virtual commit of parents', parent1, parent2)
+    message = b'virtual commit of parents ' +  parent1 + b' ' +  parent2
     merge_parents = [parent1, parent2]
-    committer = b'dulwich recursive merge'
     vcommit = repo.do_commit(
         message=message,
-        committer=committer,
-        author= None,
+        committer=_DULWICH_TEST,
+        author=_DULWICH_TEST,
         commit_timestamp=None,
         commit_timezone=None,
         author_timestamp=None,
@@ -146,9 +147,10 @@ def _create_virtual_tree_commit(repo, tree_id, parent1, parent2):
         encoding=b'utf-8',
         ref=None,
         merge_heads=merge_parents,
-        no_verify=True,
-        sign=False,
+        no_verify=False,
+        sign=False
     )
+    print("vcommit: ", vcommit)
     return vcommit
 
 
@@ -156,12 +158,15 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result):
     if len(lcas_commits) == 0:
         lcas_commits = find_merge_base(repo, [b1, b2])
         lcas_commits.reverse()
+    print("entering cvmb with: ", b1, b2, lcas_commits)
     base = lcas_commits.pop(0)
     if not base:
          # FIXME: we should use an empty tree as the merge base for b1 and b2
          # since no common ancestor exists according to the git logic
          return -1
+    print('cvmb: ', base)
     for cmt in lcas_commits:
+        print('merging: ', cmt)
         nresult = []
         rv = _create_virtual_merge_base(repo, moptions, base, cmt, [], nresult)
         if rv < 0:
@@ -183,12 +188,13 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result):
                 mrg_results.add_entry(entry)
         
     # create the new merged tree from merged entries and store it
-    merged_tree_entries = _updated_tree__entries_with_changes(repo, this_tree_id, mrg_results)
+    merged_tree_entries = _updated_tree_entries_with_changes(repo, b1_tree_id, mrg_results)
     tree_id = create_and_store_merged_tree(repo.object_store, merged_tree_entries)
 
     # create a virtual commit that does not update head whose parents are this_commit and other_commit
     virtual_tree_commit = _create_virtual_tree_commit(repo, tree_id, b1, b2)
-    result = [virtual_tree_commit]
+    result.append(virtual_tree_commit)
+    print(result)
     return 0
 
 

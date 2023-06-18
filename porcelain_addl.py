@@ -88,6 +88,7 @@ from dulwich.porcelain import (
 
 from dulwich.porcelain import status as porcelain_status
 from dulwich.porcelain import commit as porcelain_commit
+from dulwich.porcelain import checkout_branch as porcelain_checkout_branch
 
 from graph_fixed import (
     can_fast_forward,
@@ -245,7 +246,14 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
         conflict = MergeConflict('fatal',"", "", "", "Merge aborted because 2 branches were not supplied")
         mrg_results.add_fatal_conflict(conflict)
         return mrg_results
-        
+
+    # first checkout the first branch to merge results into
+    # FIXME: current checkout_branch in porcealain only takes
+    # a repo object and not a path which is not consistent with other porcealin git commands
+    # work around that here
+    with open_repo_closing(repo) as r:
+        porcelain_checkout_branch(r, committishs[0])
+    
     this_commit = None
     if repo_is_clean(repo):
         with open_repo_closing(repo) as r:
@@ -261,18 +269,18 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
 
     # if no conflicts of any sort go ahead and commit the results of the merge
     # that exists in the working directory
-    if mrg_results.merge_complete() and not mrg_results.has_chunk_conflicts():
-        message = "merging " + committishs[0] + " and " + committishs[1]
-        message = message.encode('utf-8')
-        merge_commit = porcelain_commit(repo, message)
-        old_tree = None
-        new_tree = None
-        with open_repo_closing(repo) as r:
-            old_tree = r.object_store[this_commit].tree
-            new_tree = r.object_store[merge_commit].tree
-        # now print diffstat summary of changes from merge to screen
-        if old_tree and new_tree:
-            print_diffstats_of_merge_changes(repo, old_tree, new_tree)
+    # if mrg_results.merge_complete() and not mrg_results.has_chunk_conflicts():
+    #     message = "merging " + committishs[0] + " and " + committishs[1]
+    #     message = message.encode('utf-8')
+    #     merge_commit = porcelain_commit(repo, message)
+    #     old_tree = None
+    #     new_tree = None
+    #     with open_repo_closing(repo) as r:
+    #         old_tree = r.object_store[this_commit].tree
+    #         new_tree = r.object_store[merge_commit].tree
+    #     # now print diffstat summary of changes from merge to screen
+    #     if old_tree and new_tree:
+    #         print_diffstats_of_merge_changes(repo, old_tree, new_tree)
 
     return mrg_results
         
