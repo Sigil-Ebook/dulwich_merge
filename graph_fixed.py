@@ -85,6 +85,7 @@ def _find_lcas(lookup_parents, c1, c2s):
     return results
 
 
+# actual git sorts these based on commit times
 def find_merge_base(repo, commit_ids):
     """Find lowest common ancestors of commit_ids[0] and *any* of commits_ids[1:].
 
@@ -103,7 +104,20 @@ def find_merge_base(repo, commit_ids):
     if c1 in c2s:
         return [c1]
     parents_provider = repo.parents_provider()
-    return _find_lcas(parents_provider.get_parents, c1, c2s)
+    lcas = _find_lcas(parents_provider.get_parents, c1, c2s)
+    if len(lcas) < 2:
+        return lcas
+    # need to sort these ascending order by commit time
+    id_dt = []
+    for cmt in lcas:
+        dt = repo.object_store[cmt].commit_time
+        id_dt.append((cmt, dt))
+    id_dt.sort(key=lambda x: x[1])
+    print(id_dt)
+    result = []
+    for (cmt, dt) in id_dt:
+        result.append(cmt)
+    return result
 
 
 def find_octopus_base(repo, commit_ids):
