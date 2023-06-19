@@ -62,7 +62,7 @@ MergeOptions = namedtuple('MergeOptions', ['file_merger', 'rename_detector', 'st
 
 NO_ENTRY = TreeEntry(None, None, None)
 
-# walk a a tree of trees
+# walk a tree of trees
 def tree_entry_iterator(store, treeid, base=None):
     for (name, mode, sha) in store[treeid].iteritems():
         if base:
@@ -158,7 +158,6 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result):
     if len(lcas_commits) == 0:
         lcas_commits = find_merge_base(repo, [b1, b2])
         lcas_commits.reverse()
-    print("entering cvmb with: ", b1, b2, lcas_commits)
     base = lcas_commits.pop(0)
     if not base:
          # FIXME: we should use an empty tree as the merge base for b1 and b2
@@ -166,7 +165,6 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result):
          return -1
     print('cvmb: ', base)
     for cmt in lcas_commits:
-        print('merging: ', cmt)
         nresult = []
         rv = _create_virtual_merge_base(repo, moptions, base, cmt, [], nresult)
         if rv < 0:
@@ -194,7 +192,6 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result):
     # create a virtual commit that does not update head whose parents are this_commit and other_commit
     virtual_tree_commit = _create_virtual_tree_commit(repo, tree_id, b1, b2)
     result.append(virtual_tree_commit)
-    print(result)
     return 0
 
 
@@ -216,7 +213,7 @@ def _merge_entry(moptions, new_path, object_store, this_entry,
         conflict = MergeConflict('fatal', this_entry, other_entry, other_entry.old,
                                  'Conflict in %s but no file merger provided' % new_path)
         return NO_ENTRY, [conflict]
-
+    
     this_content = object_store[this_entry.sha].as_raw_string()
     other_content =  object_store[other_entry.sha].as_raw_string()
     base_content = object_store[base_entry.sha].as_raw_string()
@@ -239,7 +236,7 @@ def _merge_entry(moptions, new_path, object_store, this_entry,
     (merged_text, conflict_list) = moptions.file_merger(this_content, other_content, base_content, moptions.strategy)
     chunk_conflicts = []
     for (range_o, range_a, range_b) in conflict_list:
-        message='Chunk conflict in: ' + str(new_path) + ' in line ranges ' + str(range_a) + str(range_b)
+        message=str(new_path) + ' in line ranges ' + str(range_o) + str(range_a) + str(range_b)
         conflict = MergeConflict('chunk', this_entry, other_entry, base_entry, message)
         chunk_conflicts.append(conflict)
 
@@ -397,8 +394,24 @@ def merge(repo, moptions, commit_ids):
       MergeResults object
     """
     mrg_results = MergeResults()
-    lcas = find_merge_base(repo, commit_ids)
-    
+
+    if len(commit_ids) != 2:
+        mrg_results.fatal_conflicts.append(MergeConflict('fatal',None, None, None, "can only merge two commits"))
+        return mrg_results
+        
+    [this_commit, other_commit] = commit_ids
+    # for some reason git swaps the order of the branch commits used to find the lcas
+    # when a non-recursive merge strategy is chosen.
+    # I can see no reason for this but we need to do the same to pass their test suite
+    branch_list = []
+    # if moptions.strategy in ['ort', 'ort-ours', 'ort-theirs', 'recursive']:
+    branch_list.append(this_commit)
+    branch_list.append(other_commit)
+    # else:
+    #     branch_list.append(other_commit)
+    #     branch_list.append(this_commit)
+    lcas = find_merge_base(repo, branch_list)
+
     if not lcas or len(lcas) == 0:
         # FIXME: no merge base found abort for now
         # git uses empty tree as merge base when this happens 
@@ -407,12 +420,13 @@ def merge(repo, moptions, commit_ids):
 
     print(len(lcas), " merge bases found")
     
-    merge_base = lcas[0]
+    merge_base = lcas[-1]
 
     # if multiple lcas found we need to recursively merge all merge bases to create
     # a virtual merge base to continue
     # if merge of lcas has fatal conflicts default to using the first merge base
-    if len(lcas) > 1:
+    # skip if using non-recursive strategy such as resolve
+    if len(lcas) > 1 and moptions.strategy in ['ort', 'ort-ours', 'ort-theirs', 'recursive']:
         lcas.reverse()
         b1 = lcas.pop(0)
         b2 = lcas.pop(0)
@@ -420,8 +434,6 @@ def merge(repo, moptions, commit_ids):
         rv = _create_virtual_merge_base(repo, moptions, b1, b2, lcas, result)
         if rv == 0:
             merge_base = result[0]
-
-    [this_commit, other_commit] = commit_ids
 
     this_tree_id = repo.object_store[this_commit].tree
     other_tree_id = repo.object_store[other_commit].tree

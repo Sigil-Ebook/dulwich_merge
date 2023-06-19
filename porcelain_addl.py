@@ -58,6 +58,7 @@ from dulwich.objects import (
     parse_timezone,
     pretty_format_tree_entry,
 )
+from dulwich.index import Index
 from dulwich.objectspec import (
     parse_commit,
     parse_object,
@@ -226,6 +227,12 @@ def _walk_working_dir_paths(frompath, basepath, prune_dirnames=None):
         if prune_dirnames:
             dirnames[:] = prune_dirnames(dirpath, dirnames)
 
+def ls_files_index(repo):
+    with open_repo_closing(repo) as r:
+        index = r.open_index()
+        for apath, sha, mode in index.iterobjects():
+            print(mode, sha, apath)
+    
 
 def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     """Perform merge of set of commits representing branch heads
@@ -240,7 +247,7 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
       MergeResults object
     """
     moptions = MergeOptions(file_merger, None, strategy)
-    
+    print("Attempting to merge branches: ", committishs)
     if len(committishs) != 2:
         mrg_results = MergeResults()
         conflict = MergeConflict('fatal',"", "", "", "Merge aborted because 2 branches were not supplied")
@@ -253,7 +260,8 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     # work around that here
     with open_repo_closing(repo) as r:
         porcelain_checkout_branch(r, committishs[0])
-    
+    print("Index at Start")
+    ls_files_index(repo)
     this_commit = None
     if repo_is_clean(repo):
         with open_repo_closing(repo) as r:
@@ -301,11 +309,14 @@ def merge_base(repo, committishs, all=False, octopus=False):
         if octopus:
             lcas = find_octopus_base(r, commits)
         else:
+            # find_merge_base sorts lcas by commit time oldest to newest
             lcas = find_merge_base(r, commits)
+            
         if all:
             return lcas
+        # if they only want one return the most recent one by commit time
         if lcas:
-            return lcas[0]
+            return lcas[-1]
         return None
 
 
