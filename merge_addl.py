@@ -57,6 +57,7 @@ MergeConflict = namedtuple('MergeConflict', ['conflict_type', 'this_entry', 'oth
 
 MergeOptions = namedtuple('MergeOptions', ['file_merger', 'rename_detector', 'strategy'])
 #      supported merge strategies are:  'ort', 'ort-ours', 'ort-theirs'
+#                                       'resolve', 'resolve-ours', 'resolve-theirs'
 #      see https://git-scm.com/docs/merge-strategies
 
 
@@ -132,7 +133,6 @@ def _updated_tree_entries_with_changes(repo, this_tree_id, mrg_results):
 
 
 def _create_virtual_tree_commit(repo, tree_id, parent1, parent2):
-    print('virtual commit of parents', parent1, parent2)
     message = b'virtual commit of parents ' +  parent1 + b' ' +  parent2
     merge_parents = [parent1, parent2]
     vcommit = repo.do_commit(
@@ -150,11 +150,10 @@ def _create_virtual_tree_commit(repo, tree_id, parent1, parent2):
         no_verify=False,
         sign=False
     )
-    print("vcommit: ", vcommit)
     return vcommit
 
 
-def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result):
+def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result, vcommits):
     if len(lcas_commits) == 0:
         lcas_commits = find_merge_base(repo, [b1, b2])
         lcas_commits.reverse()
@@ -163,10 +162,9 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result):
          # FIXME: we should use an empty tree as the merge base for b1 and b2
          # since no common ancestor exists according to the git logic
          return -1
-    print('cvmb: ', base)
     for cmt in lcas_commits:
         nresult = []
-        rv = _create_virtual_merge_base(repo, moptions, base, cmt, [], nresult)
+        rv = _create_virtual_merge_base(repo, moptions, base, cmt, [], nresult, vcommits)
         if rv < 0:
             return -1
         base = nresult[0]
@@ -190,8 +188,9 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result):
     tree_id = create_and_store_merged_tree(repo.object_store, merged_tree_entries)
 
     # create a virtual commit that does not update head whose parents are this_commit and other_commit
-    virtual_tree_commit = _create_virtual_tree_commit(repo, tree_id, b1, b2)
-    result.append(virtual_tree_commit)
+    virtual_commit = _create_virtual_tree_commit(repo, tree_id, b1, b2)
+    vcommits.append(virtual_commit)
+    result.append(virtual_commit)
     return 0
 
 
@@ -419,8 +418,11 @@ def merge(repo, moptions, commit_ids):
         return mrg_results
 
     print(len(lcas), " merge bases found")
-    
+    print(lcas)
+
+    # default ot the most recent in commit time
     merge_base = lcas[-1]
+    vcommits = []
 
     # if multiple lcas found we need to recursively merge all merge bases to create
     # a virtual merge base to continue
@@ -431,9 +433,10 @@ def merge(repo, moptions, commit_ids):
         b1 = lcas.pop(0)
         b2 = lcas.pop(0)
         result = []
-        rv = _create_virtual_merge_base(repo, moptions, b1, b2, lcas, result)
+        rv = _create_virtual_merge_base(repo, moptions, b1, b2, lcas, result, vcommits)
         if rv == 0:
             merge_base = result[0]
+        print("virtual merge base being used: ", merge_base)
 
     this_tree_id = repo.object_store[this_commit].tree
     other_tree_id = repo.object_store[other_commit].tree
@@ -453,6 +456,21 @@ def merge(repo, moptions, commit_ids):
 
         if entry.path and entry.mode and entry.sha:
             mrg_results.add_entry(entry)
+
+    # remove any dangling virtual commits and virtual trees created to facilitate the merge
+    # note you can only remove their associated trees if no conflicts
+    # as they may be needed by the final merged tree in case of conflicts
+    # as they will represent the ancestor tree
+    if len(vcommits) > 0:
+        print("Cleaning Repo Object Store of virtual objects")
+        has_conflicts = mrg_results.has_fatal_conflicts() or mrg_results.has_chunk_conflicts()
+        for vcmt in vcommits:
+            vtree_id = repo.object_store[vcmt].tree
+            if vcmt != merge_base or not has_conflicts: 
+                print("...removing virtual tree  : ", vtree_id)
+                repo.object_store._remove_loose_object(vtree_id)
+            print("...removing virtual commit: ", vcmt)
+            repo.object_store._remove_loose_object(vcmt)
 
     if mrg_results.merge_complete():
 

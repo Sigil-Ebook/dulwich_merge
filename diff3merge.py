@@ -32,7 +32,8 @@ def do_file_merge_myers(alice, bob, ancestor, strategy):
            alice     - bytestring contents of a file to merge
            bob       - bytestring contents of another file to merge
            ancestor  - bytestring contents of ancestor common to alice and bob
-           strategy  - merge strategy ("ort", "ort-ours", "ort-theirs")
+           strategy  - merge strategy ("ort", "ort-ours", "ort-theirs",
+                                       "resolve", "resolve-ours", "resolve-theirs")
                        see https://git-scm.com/docs/merge-strategies
        Returns:
            tuple of bytestring result of merge of alice with bob and
@@ -53,7 +54,8 @@ def do_file_merge_histogram(alice, bob, ancestor, strategy):
            alice     - bytestring contents of a file to merge
            bob       - bytestring contents of another file to merge
            ancestor  - bytestring contents of ancestor common to alice and bob
-           strategy  - merge strategy ("ort", "ort-ours", "ort-theirs")
+           strategy  - merge strategy ("ort", "ort-ours", "ort-theirs",
+                                       "resolve", "resolve-ours", "resolve-theirs"))
                        see https://git-scm.com/docs/merge-strategies
        Returns:
            tuple of bytestring result of merge of alice with bob and
@@ -74,7 +76,8 @@ def do_file_merge_ndiff(alice, bob, ancestor, strategy):
            alice     - bytestring contents of a file to merge
            bob       - bytestring contents of another file to merge
            ancestor  - bytestring contents of ancestor common to alice and bob
-           strategy  - merge strategy ("ort", "ort-ours", "ort-theirs")
+           strategy  - merge strategy ("ort", "ort-ours", "ort-theirs",
+                                       "resolve", "resolve-ours", "resolve-theirs"))
                        see https://git-scm.com/docs/merge-strategies
        Returns:
            tuple of bytestring result of merge of alice with bob and
@@ -100,7 +103,8 @@ class Merge3Way(object):
                bob       - bytestring to be merged with alice
                ancestor  - btyestring of common ancestor to alice and bob
                diff_type - type of diff to use "myers", "ndiff", or "histogram"
-               strategy  - merge strategy to use "ort", "ort-ours", or "ort-theirs"
+               strategy  - merge strategy ("ort", "ort-ours", "ort-theirs",
+                                           "resolve", "resolve-ours", "resolve-theirs"))
                            see https://git-scm.com/docs/merge-strategies
            Returns:
                instance of Merge3Way class
@@ -294,20 +298,20 @@ class Merge3Way(object):
             self.chunks.append(ac)
         else:
             # use strategy to determine how to handle this potential conflict
-            if self.strategy == "ort-ours":
+            if self.strategy in  ["ort-ours", "resolve-ours"]:
                 self.chunks.append(ac)
-            elif self.strategy == "ort-theirs":
+            elif self.strategy in ["ort-theirs", "resolve-theirs"]:
                 self.chunks.append(bc)
             else:
-                # defalut "ort" strategy chunk conflict - will need to hand merge
+                # a default strategy chunk conflict - will need to hand merge
                 self.conflicts.append((o_range, a_range, b_range))
-                cc = b'<<<<<<< ' + self.a_file + b'\n'
+                cc = b'<<<<<<<<< ' + self.a_file + b'\n'
                 cc += ac
-                cc += b'||||||| ' + self.o_file + b'\n'
+                cc += b'||||||||| ' + self.o_file + b'\n'
                 cc += oc
-                cc += b'======= \n'
+                cc += b'========= \n'
                 cc += bc
-                cc += b'>>>>>>> ' + self.b_file + b'\n'
+                cc += b'>>>>>>>>> ' + self.b_file + b'\n'
                 self.chunks.append(cc)
 
     def _emit_chunk(self, o, a, b):

@@ -108,16 +108,16 @@ def find_merge_base(repo, commit_ids):
     if len(lcas) < 2:
         return lcas
     # need to sort these ascending order by commit time
+    # earlist first
     id_dt = []
     for cmt in lcas:
         dt = repo.object_store[cmt].commit_time
         id_dt.append((cmt, dt))
     id_dt.sort(key=lambda x: x[1])
-    print(id_dt)
-    result = []
+    lcas = []
     for (cmt, dt) in id_dt:
-        result.append(cmt)
-    return result
+        lcas.append(cmt)
+    return lcas
 
 
 def find_octopus_base(repo, commit_ids):

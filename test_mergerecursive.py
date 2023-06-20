@@ -42,9 +42,9 @@ def main():
     blist.append(argv[2])
     strategy = argv[3]
     os.chdir("merge-recursive")
-    print(branch_list("."))
-    mb = porcelain_addl.merge_base(".", blist, all=True)
-    print("merge base: ", mb)
+    # print(branch_list("."))
+    # mb = porcelain_addl.merge_base(".", blist, all=True)
+    # print("merge base: ", mb)
     mrg_results = porcelain_addl.branch_merge(".", blist, do_file_merge_histogram, strategy=strategy)
     if mrg_results.merge_complete():
         print("Merge Complete")
