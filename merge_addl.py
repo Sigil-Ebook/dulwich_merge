@@ -152,10 +152,24 @@ def _create_virtual_tree_commit(repo, tree_id, parent1, parent2):
     return vcommit
 
 
-def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result, vcommits):
-    if len(lcas_commits) == 0:
-        lcas_commits = find_merge_base(repo, [b1, b2])
-        lcas_commits.reverse()
+def _create_virtual_merge_base_for_lcas(repo, moptions, lcas_commits, result, vcommits):
+    base = lcas_commits.pop(0)
+    if not base:
+        return -1
+    for cmt in lcas_commits:
+        nresult = []
+        rv = _create_virtual_merge_base_internal(repo, moptions, base, cmt, nresult, vcommits)
+        if rv < 0:
+            return -1
+        base = nresult[0]
+    if not base:
+        return -1
+    result.append(base)
+    return 0 
+        
+def _create_virtual_merge_base_internal(repo, moptions, b1, b2, result, vcommits):
+    lcas_commits = find_merge_base(repo, [b1, b2])
+    lcas_commits.reverse()
     base = lcas_commits.pop(0)
     if not base:
         # create a virtual commit to an empty tree to act as merge base
@@ -166,7 +180,7 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result, vco
         vcommits.append(vcommit)
     for cmt in lcas_commits:
         nresult = []
-        rv = _create_virtual_merge_base(repo, moptions, base, cmt, [], nresult, vcommits)
+        rv = _create_virtual_merge_base_internal(repo, moptions, base, cmt, nresult, vcommits)
         if rv < 0:
             return -1
         base = nresult[0]
@@ -431,10 +445,8 @@ def merge(repo, moptions, commit_ids):
     # skip if using non-recursive strategy such as resolve
     if len(lcas) > 1 and moptions.strategy in ['ort', 'ort-ours', 'ort-theirs', 'recursive']:
         lcas.reverse()
-        b1 = lcas.pop(0)
-        b2 = lcas.pop(0)
         result = []
-        rv = _create_virtual_merge_base(repo, moptions, b1, b2, lcas, result, vcommits)
+        rv = _create_virtual_merge_base_for_lcas(repo, moptions, lcas, result, vcommits)
         if rv == 0:
             merge_base = result[0]
         print("virtual merge base being used: ", merge_base)
@@ -458,21 +470,6 @@ def merge(repo, moptions, commit_ids):
         if entry.path and entry.mode and entry.sha:
             mrg_results.add_entry(entry)
 
-    # remove any dangling virtual commits and virtual trees created to facilitate the merge
-    # note you can only remove their associated trees if no conflicts
-    # as they may be needed by the final merged tree in case of conflicts
-    # as they will represent the ancestor tree
-    if len(vcommits) > 0:
-        print("Cleaning Repo Object Store of virtual objects")
-        has_conflicts = mrg_results.has_structure_conflicts() or mrg_results.has_chunk_conflicts()
-        for vcmt in vcommits:
-            vtree_id = repo.object_store[vcmt].tree
-            if vcmt != merge_base or not has_conflicts: 
-                print("...removing virtual tree  : ", vtree_id)
-                repo.object_store._remove_loose_object(vtree_id)
-            print("...removing virtual commit: ", vcmt)
-            repo.object_store._remove_loose_object(vcmt)
-
     if mrg_results.merge_complete():
 
         # create the new merged tree from merged entries and store it
@@ -492,5 +489,20 @@ def merge(repo, moptions, commit_ids):
                 
         if len(to_stage_relpaths) > 0:
             repo.stage(to_stage_relpaths)
+
+    # remove any dangling virtual commits to facilitate the merge
+    # removing their trees can cause issues as they may be needed
+    # in forming the merged results
+    if len(vcommits) > 0:
+        print("Cleaning Repo Object Store of virtual objects")
+        has_conflicts = mrg_results.has_structure_conflicts() or mrg_results.has_chunk_conflicts()
+        for vcmt in vcommits:
+            # vtree_id = repo.object_store[vcmt].tree
+            # if vcmt != merge_base or not has_conflicts: 
+            #     print("...removing virtual tree  : ", vtree_id)
+            #     repo.object_store._remove_loose_object(vtree_id)
+            print("...removing virtual commit: ", vcmt)
+            repo.object_store._remove_loose_object(vcmt)
+
 
     return mrg_results

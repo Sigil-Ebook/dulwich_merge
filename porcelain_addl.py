@@ -260,8 +260,8 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     # work around that here
     with open_repo_closing(repo) as r:
         porcelain_checkout_branch(r, committishs[0])
-    print("Index at Start")
-    ls_files_index(repo)
+    # print("Index at Start")
+    # ls_files_index(repo)
     this_commit = None
     if repo_is_clean(repo):
         with open_repo_closing(repo) as r:
