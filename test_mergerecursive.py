@@ -49,8 +49,8 @@ def main():
     if mrg_results.merge_complete():
         print("Merge Complete")
     else:
-        print("Fatal Conflicts Detected")
-        print(mrg_results.fatal_conflicts[0])
+        print("Structure Conflicts Detected")
+        print(mrg_results.structure_conflicts[0])
 
     # FIXME:  dulwich Index class has no git_conflict_add and git conflict_remove functionality
     # so it never uses STAGEMASK to create multiple staged entries for a merge conflict

@@ -250,8 +250,8 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     print("Attempting to merge branches: ", committishs)
     if len(committishs) != 2:
         mrg_results = MergeResults()
-        conflict = MergeConflict('fatal',"", "", "", "Merge aborted because 2 branches were not supplied")
-        mrg_results.add_fatal_conflict(conflict)
+        conflict = MergeConflict('structure',"", "", "", "Merge aborted because 2 branches were not supplied")
+        mrg_results.add_structure_conflict(conflict)
         return mrg_results
 
     # first checkout the first branch to merge results into
@@ -271,8 +271,8 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
             mrg_results = merge(r, moptions, commits)
     else:
         mrg_results = MergeResults()
-        conflict = MergeConflict('fatal', None, None, None, "Merge aborted because repo is not clean")
-        mrg_results.add_fatal_conflict(conflict)
+        conflict = MergeConflict('structure', None, None, None, "Merge aborted because repo is not clean")
+        mrg_results.add_structure_conflict(conflict)
         return mrg_results
 
     # if no conflicts of any sort go ahead and commit the results of the merge

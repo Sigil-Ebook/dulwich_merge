@@ -52,7 +52,7 @@ from graph_fixed import find_merge_base
 _DULWICH_TEST = b"DulwichRecursiveMerge <dulwich@dulwich.com>"
 
 MergeConflict = namedtuple('MergeConflict', ['conflict_type', 'this_entry', 'other_entry', 'base_entry', 'message'])
-#      conflict types are: 'fatal', 'chunk', 'ni'
+#      conflict types are: 'structure', 'chunk', 'ni'
 
 
 MergeOptions = namedtuple('MergeOptions', ['file_merger', 'rename_detector', 'strategy'])
@@ -128,9 +128,8 @@ def _updated_tree_entries_with_changes(repo, this_tree_id, mrg_results):
     paths.sort()
     for apath in paths:
         (mode, sha) = merged_tree[apath]
-        merged_tree_entries.append(TreeEntry(path, mode, sha))
-    return merged_tree_entries    
-
+        merged_tree_entries.append(TreeEntry(apath, mode, sha))
+    return merged_tree_entries
 
 def _create_virtual_tree_commit(repo, tree_id, parent1, parent2):
     message = b'virtual commit of parents ' +  parent1 + b' ' +  parent2
@@ -159,9 +158,12 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result, vco
         lcas_commits.reverse()
     base = lcas_commits.pop(0)
     if not base:
-         # FIXME: we should use an empty tree as the merge base for b1 and b2
-         # since no common ancestor exists according to the git logic
-         return -1
+        # create a virtual commit to an empty tree to act as merge base
+        empty_tree_id = create_and_store_merged_tree(repo.object_store, [])
+        vcommit  = _create_virtual_tree_commit(repo, empty_tree_id, this_commit, other_commit)
+        print('creating empty tree to act as ancestor via virtual commit: ', vcommit)
+        base = vcommit
+        vcommits.append(vcommit)
     for cmt in lcas_commits:
         nresult = []
         rv = _create_virtual_merge_base(repo, moptions, base, cmt, [], nresult, vcommits)
@@ -176,12 +178,12 @@ def _create_virtual_merge_base(repo, moptions, b1, b2, lcas_commits, result, vco
     base_tree_id = repo.object_store[base].tree
     mrg_results = MergeResults()
     for entry, conflicts in merge_tree(repo.object_store, moptions, b1_tree_id, b2_tree_id, base_tree_id):
-            for conflict in conflicts:
-                # explicitly allow chunk conflicts to pass through
-                if conflict.conflict_type == 'fatal' or conflict.conflict_type == 'ni':
-                    return -1
-            if entry.path and entry.mode and entry.sha:
-                mrg_results.add_entry(entry)
+        for conflict in conflicts:
+            # explicitly allow chunk conflicts to pass through
+            if conflict.conflict_type == 'structure' or conflict.conflict_type == 'ni':
+                return -1
+        if entry.path and entry.mode and entry.sha:
+            mrg_results.add_entry(entry)
         
     # create the new merged tree from merged entries and store it
     merged_tree_entries = _updated_tree_entries_with_changes(repo, b1_tree_id, mrg_results)
@@ -207,9 +209,13 @@ def _merge_entry(moptions, new_path, object_store, this_entry,
         Returns:
            TreeEntry for merged file, List of MergeConflicts
     """
+
+    # if alice and bob are identical then no 3-way merge is needed
+    if this_entry.sha == other_entry.sha:
+        return this_entry, []
        
     if moptions.file_merger is None:
-        conflict = MergeConflict('fatal', this_entry, other_entry, other_entry.old,
+        conflict = MergeConflict('structure', this_entry, other_entry, other_entry.old,
                                  'Conflict in %s but no file merger provided' % new_path)
         return NO_ENTRY, [conflict]
     
@@ -225,7 +231,7 @@ def _merge_entry(moptions, new_path, object_store, this_entry,
             elif moptions.strategy == "ort-theirs":
                 return TreeEntry(other_entry.path, other_entry.mode, other_entry.sha), []
             else:
-                conflict = MergeConflict('fatal',this_entry, other_entry, base_entry,
+                conflict = MergeConflict('structure',this_entry, other_entry, base_entry,
                                          '3 way diff and merge of binary files not supported %s' % this_entry.path) 
                 return NO_ENTRY, [conflict]  
         else:
@@ -267,7 +273,6 @@ def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
     changes_this = tree_changes(object_store, common_tree, this_tree)
     changes_this_by_common_path = { change.old.path: change for change in changes_this if change.old }
     changes_this_by_this_path = { change.new.path: change for change in changes_this if change.new }
-    
     for other_change in tree_changes(object_store, common_tree, other_tree):
         this_change = changes_this_by_common_path.get(other_change.old.path)
         
@@ -282,13 +287,13 @@ def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
             else:
                 if this_entry != other_change.new:
                     # TODO(jelmer): Three way merge instead, with empty common base?
-                    conflict = MergeConflict('fatal', this_entry, other_change.new, other_change.old,
+                    conflict = MergeConflict('structure', this_entry, other_change.new, other_change.old,
                                              'Both this and other add new file %s' % other_change.new.path)
                     yield NO_ENTRY, [conflict]
 
         elif other_change.type == CHANGE_DELETE:
             if this_change and this_change.type not in (CHANGE_DELETE, CHANGE_UNCHANGED):
-                conflict = MergeConflict('fatal', this_change.new, other_change.new, other_change.old,
+                conflict = MergeConflict('structure', this_change.new, other_change.new, other_change.old,
                                          '%s is deleted in other but modified in this' % other_change.old.path)
                 yield NO_ENTRY, [conflict]
                 
@@ -299,7 +304,7 @@ def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
             if this_change and this_change.type == CHANGE_RENAME:
                 if this_change.new.path != other_change.new.path:
                     # TODO(jelmer): Does this need to be a conflict?
-                    conflict = MergeConflict('fatal', this_change.new, other_change.new, other_change.old,
+                    conflict = MergeConflict('structure', this_change.new, other_change.new, other_change.old,
                                              '%s was renamed by both sides (%s / %s)' %
                                              (other_change.old.path, other_change.new.path, this_change.new.path))
                     yield NO_ENTRY, [conflict]
@@ -310,7 +315,7 @@ def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
                 yield _merge_entry(moptions, other_change.new.path, object_store, this_change.new,
                                    other_change.new, other_change.old)
             elif this_change and this_change.type == CHANGE_DELETE:
-                conflict = MergeConflict('fatal', this_change.new, other_change.new, other_change.old,
+                conflict = MergeConflict('structure', this_change.new, other_change.new, other_change.old,
                                          '%s is deleted in this but renamed to %s in other' %
                                          (other_change.old.path, other_change.new.path))
                 yield NO_ENTRY, [conflict]
@@ -323,7 +328,7 @@ def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
 
         elif other_change.type == CHANGE_MODIFY:
             if this_change and this_change.type == CHANGE_DELETE:
-                conflict = MergeConflict('fatal', this_change.new, other_change.new, other_change.old,
+                conflict = MergeConflict('structure', this_change.new, other_change.new, other_change.old,
                                          '%s is deleted in this but modified in other' % other_change.old.path)
                 yield NO_ENTRY, [conflict]
             elif this_change and this_change.type in (CHANGE_MODIFY, CHANGE_RENAME):
@@ -344,14 +349,14 @@ def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
 class MergeResults(object):
 
     def __init__(self):
-        self.fatal_conflicts = []
+        self.structure_conflicts = []
         self.chunk_conflicts = []
         self.hand_merge_set = set()
         self.updated_tree_entries = []
         self.tree_id = None
 
-    def add_fatal_conflict(self, fatal):
-        self.fatal_conflicts.append(fatal)
+    def add_structure_conflict(self, structure):
+        self.structure_conflicts.append(structure)
 
     def add_chunk_conflict(self, conflict):
         self.chunk_conflicts.append(conflict)
@@ -369,14 +374,14 @@ class MergeResults(object):
         for entry in self.updated_tree_entries:
             yield entry
 
-    def has_fatal_conflicts(self):
-        return len(self.fatal_conflicts) > 0
+    def has_structure_conflicts(self):
+        return len(self.structure_conflicts) > 0
     
     def has_chunk_conflicts(self):
         return len(self.chunk_conflicts) > 0
 
     def merge_complete(self):
-        return len(self.fatal_conflicts) == 0
+        return len(self.structure_conflicts) == 0
             
     def needs_to_be_hand_merged(self, apath):
         return apath in self.hand_merge_set
@@ -393,40 +398,36 @@ def merge(repo, moptions, commit_ids):
       MergeResults object
     """
     mrg_results = MergeResults()
+    vcommits = []
 
     if len(commit_ids) != 2:
-        mrg_results.fatal_conflicts.append(MergeConflict('fatal',None, None, None, "can only merge two commits"))
+        mrg_results.structure_conflicts.append(MergeConflict('structure',None, None, None, "can only merge two commits"))
         return mrg_results
         
     [this_commit, other_commit] = commit_ids
-    # for some reason git swaps the order of the branch commits used to find the lcas
-    # when a non-recursive merge strategy is chosen.
-    # I can see no reason for this but we need to do the same to pass their test suite
     branch_list = []
-    # if moptions.strategy in ['ort', 'ort-ours', 'ort-theirs', 'recursive']:
     branch_list.append(this_commit)
     branch_list.append(other_commit)
-    # else:
-    #     branch_list.append(other_commit)
-    #     branch_list.append(this_commit)
     lcas = find_merge_base(repo, branch_list)
 
-    if not lcas or len(lcas) == 0:
-        # FIXME: no merge base found abort for now
-        # git uses empty tree as merge base when this happens 
-        mrg_results.fatal_conflicts.append(MergeConflict('fatal',None, None, None, "No merge base found"))
-        return mrg_results
-
     print(len(lcas), " merge bases found")
+
+    if len(lcas) == 0:
+        # create a virtual commit to an empty tree to act as merge base
+        empty_tree_id = create_and_store_merged_tree(repo.object_store, [])
+        vcommit  = _create_virtual_tree_commit(repo, empty_tree_id, this_commit, other_commit)
+        print('creating empty tree to act as ancestor via virtual commit: ', vcommit)
+        lcas.append(vcommit)
+        vcommits.append(vcommit)
+
     print(lcas)
 
-    # default ot the most recent in commit time
+    # default to the most recent in commit time
     merge_base = lcas[-1]
-    vcommits = []
 
     # if multiple lcas found we need to recursively merge all merge bases to create
     # a virtual merge base to continue
-    # if merge of lcas has fatal conflicts default to using the first merge base
+    # if merge of lcas has structure conflicts default to using the first merge base
     # skip if using non-recursive strategy such as resolve
     if len(lcas) > 1 and moptions.strategy in ['ort', 'ort-ours', 'ort-theirs', 'recursive']:
         lcas.reverse()
@@ -449,8 +450,8 @@ def merge(repo, moptions, commit_ids):
                                        other_tree_id,
                                        base_tree_id):
         for conflict in conflicts:
-            if conflict.conflict_type == 'fatal' or conflict.conflict_type == 'ni':
-                mrg_resuts.add_fatal_conflict(conflict)
+            if conflict.conflict_type == 'structure' or conflict.conflict_type == 'ni':
+                mrg_results.add_structure_conflict(conflict)
             else:
                 mrg_results.add_chunk_conflict(conflict)
 
@@ -463,7 +464,7 @@ def merge(repo, moptions, commit_ids):
     # as they will represent the ancestor tree
     if len(vcommits) > 0:
         print("Cleaning Repo Object Store of virtual objects")
-        has_conflicts = mrg_results.has_fatal_conflicts() or mrg_results.has_chunk_conflicts()
+        has_conflicts = mrg_results.has_structure_conflicts() or mrg_results.has_chunk_conflicts()
         for vcmt in vcommits:
             vtree_id = repo.object_store[vcmt].tree
             if vcmt != merge_base or not has_conflicts: 

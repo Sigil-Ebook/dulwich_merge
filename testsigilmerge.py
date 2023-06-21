@@ -45,8 +45,8 @@ def main():
     if mrg_results.merge_complete():
         print("Merge Complete")
     else:
-        print("Fatal Conflicts Detected")
-        print(mrg_results.fatal_conflicts[0])
+        print("Structure Conflicts Detected")
+        print(mrg_results.structure_conflicts[0])
     if mrg_results.has_chunk_conflicts():
         for conflict in mrg_results.chunk_conflict_iterator():
             apath = conflict.this_entry.path
