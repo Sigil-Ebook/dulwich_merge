@@ -130,7 +130,7 @@ Resulting Index
 ----
 
 Test: Three Base Commits, NonRecursive
-runit.sh branchE-1 branchE-2 ort
+runit.sh branchE-1 branchE-2 resolve
 
 Resulting Index
 		{ 0100644, "ffb36e513f5fdf8a6ba850a20142676a2ac4807d", 0, "asparagus.txt" },
@@ -263,7 +263,7 @@ Resulting Index (after it was stopped by recursion limit)
 # `targetfile.txt` will be in conflict due to the virtual merge
 # base.
 
-Test: Merge Base for Virtualo Commit
+Test: Merge Base for Virtual Commit
 runit.sh branchJ-1 branchJ-2 ort
 
 Resulting Index
