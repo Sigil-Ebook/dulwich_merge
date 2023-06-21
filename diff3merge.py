@@ -307,8 +307,8 @@ class Merge3Way(object):
                 self.conflicts.append((o_range, a_range, b_range))
                 cc = b'<<<<<<< ' + self.a_file + b'\n'
                 cc += ac
-                cc += b'||||||| ' + self.o_file + b'\n'
-                cc += oc
+                # cc += b'||||||| ' + self.o_file + b'\n'
+                # cc += oc
                 cc += b'======= \n'
                 cc += bc
                 cc += b'>>>>>>> ' + self.b_file + b'\n'
