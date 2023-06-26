@@ -425,9 +425,7 @@ class Index:
                 return True
         return False
 
-    def set_merge_conflict(self, apath, stage, mode, sha):
-        print("setting merge conflict", apath, stage, mode, sha)
-        time = 0
+    def set_merge_conflict(self, apath, stage, mode, sha, time):
         entry = IndexEntry(time,
                            time,
                            0,
@@ -943,6 +941,9 @@ def get_unstaged_changes(
 
     for tree_path, entry in index.iteritems():
         full_path = _tree_to_fs_path(root_path, tree_path)
+        stage = read_stage(entry)
+        if stage == 1 or stage == 3:
+            continue
         try:
             st = os.lstat(full_path)
             if stat.S_ISDIR(st.st_mode):
