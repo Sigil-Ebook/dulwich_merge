@@ -1,4 +1,3 @@
-# index.py -- File parser/writer for the git index file
 # Copyright (C) 2008-2013 Jelmer Vernooij <jelmer@jelmer.uk>
 #
 # Dulwich is dual-licensed under the Apache License, Version 2.0 and the GNU
@@ -195,7 +194,7 @@ def read_cache_entry(f, version: int) -> Tuple[str, IndexEntry]:
             gid,
             size,
             sha_to_hex(sha),
-            flags,
+            flags & ~FLAG_NAMEMASK,
             extended_flags,
         ))
 
@@ -260,7 +259,7 @@ def read_index_dict(f) -> Dict[Tuple[bytes,int], IndexEntry]:
        Dict Key is tuple of path and stage number, as
             path alone is not unique
     Args:
-      f: File object to read from
+      f: File object to read fromls
     """
     ret = {}
     for name, entry in read_index(f):
@@ -294,7 +293,12 @@ def write_index_dict(
        being careful to sort by path and then by stage
     """
     entries_list = []
-    for name, stage in sorted(entries):
+    for key in sorted(entries):
+        if isinstance(key, tuple):
+            name, stage = key
+        else:
+            name = key
+            stage = 0
         entries_list.append((name, entries[(name, stage)]))
     write_index(f, entries_list, version=version)
 
@@ -390,7 +394,10 @@ class Index:
 
     def __iter__(self) -> Iterator[Tuple[bytes, int]]:
         """Iterate over the paths and stages in this index."""
-        return iter(self._bynamestage)
+        for (name, stage) in self._bynamestage:
+            if stage == 1 or stage == 3:
+                continue
+            yield name
 
     def __contains__(self, key):
         if isinstance(key, tuple):
@@ -411,10 +418,11 @@ class Index:
 
     def iterobjects(self) -> Iterable[Tuple[bytes, bytes, int]]:
         """Iterate over path, sha, mode tuples for use with commit_tree."""
-        for path, stage in self:
+        for path in self:
             # FIXME: do not allow commit or commit tree to be built if entries
             # with merge conflicts exist (ie. entries with stage values > 0
-            entry = self[(path, stage)]
+            entry = self[path]
+            stage = read_stage(entry)
             if stage > 0:
                 raise
             yield path, entry.sha, cleanup_mode(entry.mode)

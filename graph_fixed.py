@@ -91,12 +91,14 @@ def _find_lcas(lookup_parents, c1, c2s, lookup_stamp, min_stamp=0):
 
     # walk final candidates removing any superseded by _DNC by later lower _LCAs
     # remove any duplicates and sort it so that earliest is first
+    # and return just the commit ids
     results = []
     for dt, cmt in cands:
         if not ((cstates[cmt] & _DNC) == _DNC) and not (dt,cmt) in results:
             results.append((dt,cmt))
     results.sort(key=lambda x: x[0])
-    return results
+    lcas = [cmt for dt, cmt in results]
+    return lcas
 
 
 # actual git sorts these based on commit times
@@ -126,8 +128,7 @@ def find_merge_base(repo, commit_ids):
     if c1 in c2s:
         return [c1]
     parents_provider = repo.parents_provider()
-    results = _find_lcas(parents_provider.get_parents, c1, c2s, lookup_stamp)
-    lcas = [cmt for dt, cmt in results]
+    lcas = _find_lcas(parents_provider.get_parents, c1, c2s, lookup_stamp)
     return lcas
 
 
