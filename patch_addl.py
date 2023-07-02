@@ -25,9 +25,7 @@ These patches are basically unified diffs with some extra metadata tacked
 on.
 """
 
-import time
 import os
-import sys
 
 from index_addl import changes_from_workingdir
 
@@ -43,6 +41,7 @@ from dulwich.patch import (
     shortid,
     patch_filename
 )
+
 
 def _write_diff(f, a, b):
     (name1, mode1, sha1, content1) = a
@@ -66,7 +65,6 @@ def _write_diff(f, a, b):
                                   content2.splitlines(True),
                                   old_path,
                                   new_path))
-
 
 
 def write_tree_workingdir_diff(f, store, tree, names,
@@ -118,7 +116,6 @@ def write_tree_workingdir_diff(f, store, tree, names,
                        (name2, mode2, sha2, content2))
 
 
-
 def write_tree_index_diff(f, store, tree, index, diff_binary=False):
     """Write diff of tree against current index
     Args:
@@ -138,7 +135,6 @@ def write_tree_index_diff(f, store, tree, index, diff_binary=False):
             content1 = store[sha1].as_raw_string()
         _write_diff(f, (name1, mode1, sha1, content1),
                        (name2, mode2, sha2, content2))
-
 
 
 def write_index_workingdir_diff(f, store, index, names,

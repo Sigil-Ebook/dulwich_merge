@@ -19,80 +19,32 @@
 # License, Version 2.0.
 #
 
-import datetime
 import os
-import posixpath
-import stat
 import sys
-import time
 
-from collections import namedtuple
-from contextlib import closing, contextmanager
 from io import BytesIO
-from pathlib import Path
-from typing import Optional, Tuple, Union
 
-from dulwich.diff_tree import (
-    CHANGE_ADD,
-    CHANGE_COPY,
-    CHANGE_DELETE,
-    CHANGE_MODIFY,
-    CHANGE_RENAME,
-    RENAME_CHANGE_TYPES,
-)
-from dulwich.file import ensure_dir_exists
 from dulwich.ignore import IgnoreFilterManager
-from dulwich.index import (
-    _fs_to_tree_path,
-    blob_from_path_and_stat,
-    build_file_from_blob,
-    get_unstaged_changes,
-    index_entry_from_stat,
-    os_sep_bytes
-)
-from dulwich.object_store import iter_tree_contents, tree_lookup_path
-from dulwich.objects import (
-    Commit,
-    Tag,
-    format_timezone,
-    parse_timezone,
-    pretty_format_tree_entry,
-)
-from dulwich.index import Index
-from dulwich.objectspec import (
-    parse_commit,
-    parse_object,
-    parse_ref,
-    parse_reftuples,
-    parse_tree,
-    to_bytes,
-)
+from dulwich.index import os_sep_bytes
+from dulwich.objectspec import parse_commit
+
 from dulwich.patch import write_tree_diff
 from patch_addl import (
     write_tree_workingdir_diff,
     write_tree_index_diff,
     write_index_workingdir_diff
-    )
-from dulwich.refs import (
-    LOCAL_BRANCH_PREFIX,
-    LOCAL_REMOTE_PREFIX,
-    LOCAL_TAG_PREFIX,
-    _import_remote_refs,
 )
-from dulwich.repo import BaseRepo, Repo
+
 from dulwich.porcelain import (
     open_repo_closing,
-    default_bytes_out_stream,
-    default_bytes_err_stream,
-    DEFAULT_ENCODING
+    default_bytes_out_stream
 )
 
 from dulwich.porcelain import status as porcelain_status
-from dulwich.porcelain import commit as porcelain_commit
+from dulwich.porcelain import commit as porcelain_commit  # noqa F401
 from dulwich.porcelain import checkout_branch as porcelain_checkout_branch
 
 from graph_fixed import (
-    can_fast_forward,
     find_merge_base,
     find_octopus_base
 )
@@ -148,11 +100,13 @@ def print_repo_status(repo):
         print('')
     if len(unstaged) > 0:
         print("Changes not staged for commit:")
+        unstaged.sort()
         for path in unstaged:
             print('    ', "unstaged", path)
         print('')
     if len(untracked) > 0:
         print("Untracked files:")
+        untracked.sort()
         for path in untracked:
             print('    ', "no track", path)
         print('')
@@ -227,12 +181,15 @@ def _walk_working_dir_paths(frompath, basepath, prune_dirnames=None):
         if prune_dirnames:
             dirnames[:] = prune_dirnames(dirpath, dirnames)
 
+
 def ls_files_index(repo):
     with open_repo_closing(repo) as r:
         index = r.open_index()
-        for apath, sha, mode in index.iterobjects():
-            print(mode, sha, apath)
-    
+        for (apath, stage), entry in index.items():
+            mode = entry.mode
+            sha = entry.sha
+            print(mode, sha, stage, apath)
+
 
 def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     """Perform merge of set of commits representing branch heads
@@ -250,7 +207,7 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     print("Attempting to merge branches: ", committishs)
     if len(committishs) != 2:
         mrg_results = MergeResults()
-        conflict = MergeConflict('structure',"", "", "", "Merge aborted because 2 branches were not supplied")
+        conflict = MergeConflict('structure', "", "", "", "Merge aborted because 2 branches were not supplied")
         mrg_results.add_structure_conflict(conflict)
         return mrg_results
 
@@ -267,7 +224,7 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
         with open_repo_closing(repo) as r:
             commits = [parse_commit(r, committish).id
                        for committish in committishs]
-            this_commit = commits[0]
+            this_commit = commits[0]  # noqa F841
             mrg_results = merge(r, moptions, commits)
     else:
         mrg_results = MergeResults()

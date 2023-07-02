@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # vim:ts=4:sw=4:softtabstop=4:smarttab:expandtab
 """
@@ -147,8 +147,8 @@ def _myers_ses(a_lines, b_lines):
     trace = []
     v = [-1 for i in range(2 * MAX + 1)]
     v[1] = 0
-    for d in range(MAX+1):
-        for k in range(-d, d+1, 2):
+    for d in range(MAX + 1):
+        for k in range(-d, d + 1, 2):
             if k == -d or (k != d and v[k - 1] < v[k + 1]):
                 x = v[k + 1]
             else:
