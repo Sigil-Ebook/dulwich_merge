@@ -20,17 +20,68 @@
 
 """Implementation of merge-base following the approach of git."""
 
-# the number of commits under consideration for lcas should remain small
-# so implement this is a very simple way for now
-def plist_get(lst):
-    mdt, acmt = lst[0]
-    i = 0
-    for j in range(1,len(lst)):
-        dt, cmt = lst[j]
-        if dt > mdt:
-            mdt = dt
-            i = j
-    return lst.pop(i)
+from collections.abc import MutableMapping
+from collections import OrderedDict
+
+from heapq import heappush, heappop
+
+# Because opening an sha file from the object_store, reading it,
+# then decoding its will be a slow operation, we want to create
+# a cache of Commit objects so that repeat parent and commit time
+# lookup (which are inherent when looking for a common ancestor)
+# will be much faster, so we need to implement a simple Commit cache
+# using an OrderedDict
+
+class CommitCache(MutableMapping):
+    def __init__ (self, maxsize):
+        self.maxsize = maxsize
+        self.d = OrderedDict()
+
+    def __getitem__(self, key):
+        self.d.move_to_end(key)
+        return self.d[key]
+
+    def __setitem__ (self, key, value):
+        if key in self.d:
+            self.d.move_to_end(key)
+        elif len(self.d) == self.maxsize:
+            self.d.popitem(last=False)
+        self.d[key] = value
+
+    def __delitem__(self, key):
+        del self.d[key]
+
+    def __iter__(self):
+        return self.d__iter__()
+
+    def __len__(self):
+        return len(self.d)
+
+    def __contains__(self, key):
+        return key in self.d
+
+
+# priority queue using builtin python minheap tools
+# why they do not have a bultin maxheap is simply ridiculous but
+# liveable with integer time stamps using negation
+class WrkLst(object):
+    def __init__(self):
+        self.pq = []
+
+    def add(self, item):
+        dt, cmt = item
+        heappush(self.pq, (-dt, cmt))
+
+    def get(self):
+        item = heappop(self.pq)
+        if item:
+            pr, cmt = item
+            return -pr, cmt
+        return None
+
+    def iter(self):
+        for (pr, cmt) in self.pq:
+            yield (-pr, cmt)
 
 
 def _find_lcas(lookup_parents, c1, c2s, lookup_stamp, min_stamp=0):
@@ -44,7 +95,7 @@ def _find_lcas(lookup_parents, c1, c2s, lookup_stamp, min_stamp=0):
     _LCA = 8  # potential LCA (Lowest Common Ancestor)
 
     def _has_candidates(wlst, cstates):
-        for dt, cmt in wlst:
+        for dt, cmt in wlst.iter():
             if cmt in cstates:
                 if not ((cstates[cmt] & _DNC) == _DNC):
                     return True
@@ -52,18 +103,18 @@ def _find_lcas(lookup_parents, c1, c2s, lookup_stamp, min_stamp=0):
 
     # initialize the working list states with ancestry info
     # note possibility of c1 being one of c2s should be handled
-    wlst = []
+    wlst = WrkLst()
     cstates[c1] = _ANC_OF_1
-    wlst.append((lookup_stamp(c1),c1))
+    wlst.add((lookup_stamp(c1),c1))
     for c2 in c2s:
         cflags = cstates.get(c2, 0)
         cstates[c2] = cflags | _ANC_OF_2
-        wlst.append((lookup_stamp(c2),c2))
-    
+        wlst.add((lookup_stamp(c2),c2))
+
     # loop while at least one working list commit is still viable (not marked as _DNC)
     # adding any parents to the list in a breadth first manner
     while _has_candidates(wlst, cstates):
-        dt, cmt = plist_get(wlst)
+        dt, cmt = wlst.get()
         # Look only at ANCESTRY and _DNC flags so that already
         # found _LCAs can still be marked _DNC by lower _LCAS
         cflags = cstates[cmt] & (_ANC_OF_1 | _ANC_OF_2 | _DNC)
@@ -87,15 +138,14 @@ def _find_lcas(lookup_parents, c1, c2s, lookup_stamp, min_stamp=0):
                 if pdt < min_stamp:
                     continue
                 cstates[pcmt] = pflags | cflags
-                wlst.append((pdt,pcmt))
+                wlst.add((pdt, pcmt))
 
     # walk final candidates removing any superseded by _DNC by later lower _LCAs
     # remove any duplicates and sort it so that earliest is first
-    # and return just the commit ids
     results = []
     for dt, cmt in cands:
-        if not ((cstates[cmt] & _DNC) == _DNC) and not (dt,cmt) in results:
-            results.append((dt,cmt))
+        if not ((cstates[cmt] & _DNC) == _DNC) and not (dt, cmt) in results:
+            results.append((dt, cmt))
     results.sort(key=lambda x: x[0])
     lcas = [cmt for dt, cmt in results]
     return lcas
@@ -111,14 +161,21 @@ def find_merge_base(repo, commit_ids):
     Returns:
       list of lowest common ancestor commit_ids
     """
-    cstamps = {}
-    def lookup_stamp(cmt):
-        if cmt in cstamps:
-            return cstamps[cmt]
-        dt = repo.object_store[cmt].commit_time
-        cstamps[cmt] = dt
-        return dt
-    
+    cmtcache = CommitCache(128)
+    parents_provider = repo.parents_provider()
+
+    def lookup_stamp(cmtid):
+        if not cmtid in cmtcache:
+            cmtcache[cmtid] = repo.object_store[cmtid]
+        return cmtcache[cmtid].commit_time
+
+    def lookup_parents(cmtid):
+        commit = None
+        if cmtid in cmtcache:
+            commit = cmtcache[cmtid]
+        # must use parents provider to handle grafts and shallow
+        return parents_provider.get_parents(cmtid, commit=commit)
+
     if not commit_ids:
         return []
     c1 = commit_ids[0]
@@ -127,8 +184,7 @@ def find_merge_base(repo, commit_ids):
     c2s = commit_ids[1:]
     if c1 in c2s:
         return [c1]
-    parents_provider = repo.parents_provider()
-    lcas = _find_lcas(parents_provider.get_parents, c1, c2s, lookup_stamp)
+    lcas = _find_lcas(lookup_parents, c1, c2s, lookup_stamp)
     return lcas
 
 
@@ -141,25 +197,31 @@ def find_octopus_base(repo, commit_ids):
     Returns:
       list of lowest common ancestor commit_ids
     """
-    cstamps = {}
-    def lookup_stamp(cmt):
-        if cmt in cstamps:
-            return cstamps[cmt]
-        dt = repo.object_store[cmt].commit_time
-        cstamps[cmt] = dt
-        return dt
-    
+    cmtcache = CommitCache(128)
+    parents_provider = repo.parents_provider()
+
+    def lookup_stamp(cmtid):
+        if not cmtid in cmtcache:
+            cmtcache[cmtid] = repo.object_store[cmtid]
+        return cmtcache[cmtid].commit_time
+
+    def lookup_parents(cmtid):
+        commit = None
+        if cmtid in cmtcache:
+            commit = cmtcache[cmtid]
+        # must use parents provider to handle grafts and shallow
+        return parents_provider.get_parents(cmtid, commit=commit)
+
     if not commit_ids:
         return []
     if len(commit_ids) <= 2:
         return find_merge_base(repo, commit_ids)
-    parents_provider = repo.parents_provider()
     lcas = [commit_ids[0]]
     others = commit_ids[1:]
     for cmt in others:
         next_lcas = []
         for ca in lcas:
-            res = _find_lcas(parents_provider.get_parents, cmt, [ca], lookup_stamp)
+            res = _find_lcas(lookup_parents, cmt, [ca], lookup_stamp)
             next_lcas.extend(res)
         lcas = next_lcas[:]
     return lcas
@@ -173,19 +235,25 @@ def can_fast_forward(repo, c1, c2):
       c1: Commit id for first commit
       c2: Commit id for second commit
     """
-    cstamps = {}
-    def lookup_stamp(cmt):
-        if cmt in cstamps:
-            return cstamps[cmt]
-        dt = repo.object_store[cmt].commit_time
-        cstamps[cmt] = dt
-        return dt
+    cmtcache = CommitCache(128)
+    parents_provider = repo.parents_provider()
+
+    def lookup_stamp(cmtid):
+        if not cmtid in cmtcache:
+            cmtcache[cmtid] = repo.object_store[cmtid]
+        return cmtcache[cmtid].commit_time
+
+    def lookup_parents(cmtid):
+        commit = None
+        if cmtid in cmtcache:
+            commit = cmtcache[cmtid]
+        # must use parents provider to handle grafts and shallow
+        return parents_provider.get_parents(cmtid, commit=commit)
 
     if c1 == c2:
         return True
 
     # Algorithm: Find the common ancestor
-    parents_provider = repo.parents_provider()
     min_stamp = lookup_stamp(c1)
-    lcas = _find_lcas(parents_provider.get_parents, c1, [c2], lookup_stamp, min_stamp=min_stamp)
+    lcas = _find_lcas(lookup_parents, c1, [c2], lookup_stamp, min_stamp=min_stamp)
     return lcas == [c1]
