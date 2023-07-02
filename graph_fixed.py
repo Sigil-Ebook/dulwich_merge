@@ -32,8 +32,10 @@ from heapq import heappush, heappop
 # will be much faster, so we need to implement a simple Commit cache
 # using an OrderedDict
 
+
 class CommitCache(MutableMapping):
-    def __init__ (self, maxsize):
+
+    def __init__(self, maxsize):
         self.maxsize = maxsize
         self.d = OrderedDict()
 
@@ -41,7 +43,7 @@ class CommitCache(MutableMapping):
         self.d.move_to_end(key)
         return self.d[key]
 
-    def __setitem__ (self, key, value):
+    def __setitem__(self, key, value):
         if key in self.d:
             self.d.move_to_end(key)
         elif len(self.d) == self.maxsize:
@@ -105,11 +107,11 @@ def _find_lcas(lookup_parents, c1, c2s, lookup_stamp, min_stamp=0):
     # note possibility of c1 being one of c2s should be handled
     wlst = WrkLst()
     cstates[c1] = _ANC_OF_1
-    wlst.add((lookup_stamp(c1),c1))
+    wlst.add((lookup_stamp(c1), c1))
     for c2 in c2s:
         cflags = cstates.get(c2, 0)
         cstates[c2] = cflags | _ANC_OF_2
-        wlst.add((lookup_stamp(c2),c2))
+        wlst.add((lookup_stamp(c2), c2))
 
     # loop while at least one working list commit is still viable (not marked as _DNC)
     # adding any parents to the list in a breadth first manner
@@ -122,7 +124,7 @@ def _find_lcas(lookup_parents, c1, c2s, lookup_stamp, min_stamp=0):
             # potential common ancestor if not already in candidates add it
             if not (cstates[cmt] & _LCA) == _LCA:
                 cstates[cmt] = cstates[cmt] | _LCA
-                cands.append((dt,cmt))
+                cands.append((dt, cmt))
             # mark any parents of this node _DNC as all parents
             # would be one generation further removed common ancestors
             cflags = cflags | _DNC
@@ -165,7 +167,7 @@ def find_merge_base(repo, commit_ids):
     parents_provider = repo.parents_provider()
 
     def lookup_stamp(cmtid):
-        if not cmtid in cmtcache:
+        if cmtid not in cmtcache:
             cmtcache[cmtid] = repo.object_store[cmtid]
         return cmtcache[cmtid].commit_time
 
@@ -201,7 +203,7 @@ def find_octopus_base(repo, commit_ids):
     parents_provider = repo.parents_provider()
 
     def lookup_stamp(cmtid):
-        if not cmtid in cmtcache:
+        if cmtid not in cmtcache:
             cmtcache[cmtid] = repo.object_store[cmtid]
         return cmtcache[cmtid].commit_time
 
@@ -239,7 +241,7 @@ def can_fast_forward(repo, c1, c2):
     parents_provider = repo.parents_provider()
 
     def lookup_stamp(cmtid):
-        if not cmtid in cmtcache:
+        if cmtid not in cmtcache:
             cmtcache[cmtid] = repo.object_store[cmtid]
         return cmtcache[cmtid].commit_time
 
