@@ -20,10 +20,6 @@
 #
 
 
-import os
-import sys
-
-
 def changes_from_workingdir(names, lookup_entry, object_store,
                             index, want_unchanged=False):
     """Find the differences between the contents of the index and
@@ -62,4 +58,3 @@ def changes_from_workingdir(names, lookup_entry, object_store,
             pass
         else:
             yield ((None, name), (None, other_mode), (None, other_sha))
-

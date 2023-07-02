@@ -39,10 +39,10 @@ Implementation of a Histogram Diff as used by git In Python3
 # SOFTWARE.
 
 import sys
-import os
 import gc
 
 from myersdiff import myers_diff
+
 
 def primes(n):
     """
@@ -67,8 +67,7 @@ def primes(n):
     return primelist
 
 
-
-class HistTableNotWellSuited(Exception):
+class HistTableNotWellSuitedEx(Exception):
     def __init__(self, message):
         super().__init__(message)
 
@@ -91,12 +90,12 @@ class HistTable(object):
              and to indicate which values from file_a need not be considered as a possible
              lsb
 
-        Raises HistTableNotWellSuited(Exception) when max chain length exceeded
+        Raises HistTableNotWellSuitedEx(Exception) when max chain length exceeded
     """
 
     def __init__(self, size, lookupa, lookupb):
-        self.lookupa = lookupa # function to look up a line in file a
-        self.lookupb = lookupb # function to look up a line in file b
+        self.lookupa = lookupa  # function to look up a line in file a
+        self.lookupb = lookupb  # function to look up a line in file b
         primelist = primes(size)
         if len(primelist) > 0: 
             self.tablesize = primelist[-1]
@@ -126,7 +125,7 @@ class HistTable(object):
             else:
                 # exceeded max chain length of allowed collisions in this bucket
                 # file being diffed is not well suited for this histogram approach
-                raise HistTableNotWellSuitedException('max chin length exceeded')
+                raise HistTableNotWellSuitedEx('max chin length exceeded')
 
         self.buckets[pointer].append([key, value])
 
@@ -152,7 +151,6 @@ class HistTable(object):
                     # do not consider for lsb unless 'a' count less than max_chain_length
                     if entry[1][0] < self.max_chain_length:
                         yield entry[1]
-
 
 
 class HistogramDiffer(object):
@@ -183,37 +181,35 @@ class HistogramDiffer(object):
         return self.fbs[i]
 
     def histdiff(self):
-        if self.lcs(0, len(self.fas), 0, len(self.fbs)) == False:
+        if self.lcs(0, len(self.fas), 0, len(self.fbs)) is False:
             # not well suited to using this histogram approach
             # handle by using myers diff
             return myers_diff(self.fas, self.fbs)
         ai = 0
         bi = 0
         res = []
-        for di in range(0,len(self.fds)):
+        for di in range(0, len(self.fds)):
             while ai < len(self.fas) and self.fas[ai] != self.fds[di]:
                 res.append(b"- " + self.fas[ai])
-                ai +=1
+                ai += 1
             while bi < len(self.fbs) and self.fbs[bi] != self.fds[di]:
                 res.append(b"+ " + self.fbs[bi])
-                bi+=1
+                bi += 1
             res.append(b"  " + self.fds[di])
-            ai+=1
-            bi+=1
+            ai += 1
+            bi += 1
         while ai < len(self.fas):
             res.append(b"- " + self.fas[ai])
-            ai+=1
+            ai += 1
         while bi < len(self.fbs):
             res.append(b"+ " + self.fbs[bi])
-            bi+=1
+            bi += 1
         return res
-
     
     def common_base(self):
-        if self.lcs(0, len(self.fas), 0, len(self.fbs)) == False:
+        if self.lcs(0, len(self.fas), 0, len(self.fbs)) is False:
             return []
         return self.fds
-
 
     def lcs(self, a0, a1, b0, b1):
         # skip equivalent items at top and bottom
@@ -221,12 +217,12 @@ class HistogramDiffer(object):
         ts = []
         while (a0 < a1) and (b0 < b1) and (self.fas[a0] == self.fbs[b0]):
             hs.append(self.fas[a0])
-            a0+=1 
-            b0+=1
-        while (a0 < a1) and (b0 < b1) and (self.fas[a1-1] == self.fbs[b1-1]):
-            ts.append(self.fas[a1-1])
-            a1-=1
-            b1-=1
+            a0 += 1 
+            b0 += 1
+        while (a0 < a1) and (b0 < b1) and (self.fas[a1 - 1] == self.fbs[b1 - 1]):
+            ts.append(self.fas[a1 - 1])
+            a1 -= 1
+            b1 -= 1
         ts.reverse()
         # build histogram
         if (a1 - a0) > (b1 - b0):
@@ -240,23 +236,23 @@ class HistogramDiffer(object):
         # check for not well suited exceptions
         # note if it does not fire the first time here it can never fire later
         try:
-            for i in range(a0,a1):
+            for i in range(a0, a1):
                 key = ('a', i)
                 if hist[key]:
                     (ac, ai, bc, bi) = hist[key]
-                    hist[key] = (ac+1, i, bc, bi)
+                    hist[key] = (ac + 1, i, bc, bi)
                 else:
-                    hist[key] =  (1, i, 0, -1)
-        except HistTableNotWellSuitedException as exc:
+                    hist[key] = (1, i, 0, -1)
+        except HistTableNotWellSuitedEx:
             pass
             return False
-        
+
         # now walk scan the lines of b looking for matches
-        for i in range(b0,b1):
+        for i in range(b0, b1):
             key = ('b', i)
             if hist[key]:
                 (ac, ai, bc, bi) = hist[key]
-                hist[key] = (ac, ai, bc+1, i)
+                hist[key] = (ac, ai, bc + 1, i)
             # if not in "a" then can never be common so no need to add this line of b
             # to hist table as it can never be an LSB split candidate
             # else:
@@ -283,10 +279,9 @@ class HistogramDiffer(object):
         self.fds = self.fds + hs
         self.lcs(a0, ai, b0, bi)
         self.fds = self.fds + [self.fas[ai]]
-        self.lcs(ai+1, a1, bi+1, b1)
+        self.lcs(ai + 1, a1, bi + 1, b1)
         self.fds = self.fds + ts
         return True
-
 
 
 def main():
@@ -314,8 +309,9 @@ def main():
             a = ff.read()
         with open(tofile, 'rb') as tf:
             b = tf.read()
-    except:
+    except Exception:
         a, b = b'', b''
+        pass
     a_lines = a.splitlines(True)
     b_lines = b.splitlines(True)
     hdiffer = HistogramDiffer(a_lines, b_lines)
@@ -324,11 +320,12 @@ def main():
 
     # now use histogram base to generate a common base
     print("\n\ncommon base\n")
-    hdiffer2 = Histogram(a_lines, b_lines)
+    hdiffer2 = HistogramDiffer(a_lines, b_lines)
     res = hdiffer2.common_base()
     print(b''.join(res).decode('utf-8'), end="")
     
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())
