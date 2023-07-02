@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # vim:ts=4:sw=4:softtabstop=4:smarttab:expandtab
 
@@ -115,7 +115,7 @@ def diffstat(lines, max_width=80):
         insert.append(i)
         delete.append(d)
         namelen = max(namelen, len(filename))
-        maxdiff = max(maxdiff, i+d)
+        maxdiff = max(maxdiff, i + d)
     output = b''
     statlen = len(str(maxdiff))  # stats column width
     for i, n in enumerate(names):
@@ -133,7 +133,7 @@ def diffstat(lines, max_width=80):
             width = len(format % (b'', b'', b''))
             histwidth = max(2, max_width - width)
             if maxdiff < histwidth:
-                hist = b'+'*insert[i] + b'-'*delete[i]
+                hist = b'+' * insert[i] + b'-' * delete[i]
             else:
                 iratio = (float(insert[i]) / maxdiff) * histwidth
                 dratio = (float(delete[i]) / maxdiff) * histwidth
@@ -150,7 +150,7 @@ def diffstat(lines, max_width=80):
                     dwidth = int(dratio)
                     if dwidth == 0 and 0 < dratio < 1:
                         dwidth = 1
-                hist = b'+'*int(iwidth) + b'-'*int(dwidth)
+                hist = b'+' * int(iwidth) + b'-' * int(dwidth)
             output += (format % (bytes(names[i]),
                                  str(insert[i] + delete[i]).encode('ascii'),
                                  hist))

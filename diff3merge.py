@@ -20,10 +20,12 @@ from myersdiff import myers_diff
 from histogramdiff import HistogramDiffer
 from difflib import diff_bytes, ndiff
 
+
 def generate_common_ancestor(alice, bob):
     hd = HistogramDiffer(alice.splitlines(True), bob.splitlines(True))
     res = hd.common_base()
     return b''.join(res)
+
 
 def do_file_merge_myers(alice, bob, ancestor, strategy):
     """Merge alice and bob based on their common ancestor
@@ -218,13 +220,12 @@ class Merge3Way(object):
                 on += 1
         return matches
 
-    
     def _generate_chunks(self):
         """ generate a list of chunks where each chunk represents
             either of matching region or non-matching region
             across alice, ancestor, and bob
         """
-        while(True):
+        while (True):
             i = self._find_next_mismatch()
             if i is None:
                 self._emit_final_chunk()
@@ -270,7 +271,7 @@ class Merge3Way(object):
     def _find_next_match(self):
         """Find next chunk that matches across ancestor, alice, and bob"""
         ov = self.on + 1
-        while(True):
+        while (True):
             if ov > len(self.o_lines):
                 break
             if (ov in self.a_matches and ov in self.b_matches):
@@ -298,7 +299,7 @@ class Merge3Way(object):
             self.chunks.append(ac)
         else:
             # use strategy to determine how to handle this potential conflict
-            if self.strategy in  ["ort-ours", "resolve-ours"]:
+            if self.strategy in ["ort-ours", "resolve-ours"]:
                 self.chunks.append(ac)
             elif self.strategy in ["ort-theirs", "resolve-theirs"]:
                 self.chunks.append(bc)
@@ -316,16 +317,16 @@ class Merge3Way(object):
 
     def _emit_chunk(self, o, a, b):
         """Emit chunk at offsets o, a, b in ancestor, alice, and bob"""
-        self._write_chunk((self.on, o-1),
-                          (self.an, a-1),
-                          (self.bn, b-1))
+        self._write_chunk((self.on, o - 1),
+                          (self.an, a - 1),
+                          (self.bn, b - 1))
         self.on, self.an, self.bn = o - 1, a - 1, b - 1
 
     def _emit_final_chunk(self):
         """Write out any remaining chunks"""
-        self._write_chunk((self.on, len(self.o_lines)+1),
-                          (self.an, len(self.a_lines)+1),
-                          (self.bn, len(self.b_lines)+1))
+        self._write_chunk((self.on, len(self.o_lines) + 1),
+                          (self.an, len(self.a_lines) + 1),
+                          (self.bn, len(self.b_lines) + 1))
 
     def merge(self):
         """Perform 3 way merge"""
@@ -368,8 +369,8 @@ def main():
         res, conflicts = do_file_merge_histogram(alice, bob, ancestor, "ort")
     else:
         res = []
-        conflicts=[]
-        print("unrecognized diff type: " + dtyp)
+        conflicts = []
+        print("unrecognized diff type: " + dtype)
     print(res.decode('utf-8'), end='')
     print(conflicts)
     return 0
