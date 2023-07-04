@@ -20,18 +20,17 @@
 #
 
 """Merge support."""
-import sys
 import os
 import stat
 import posixpath
+
+from typing import Any, Dict
 
 from collections import namedtuple
 
 from dulwich.index import build_file_from_blob, pathsplit, pathjoin
 
 from dulwich.file import ensure_dir_exists
-
-from dulwich.repo import Repo
 
 from dulwich.objects import TreeEntry, Tree, Blob
 
@@ -44,8 +43,8 @@ from dulwich.diff_tree import (
     CHANGE_DELETE,
     CHANGE_MODIFY,
     CHANGE_RENAME,
-    CHANGE_UNCHANGED,
-    )
+    CHANGE_UNCHANGED
+)
 
 from graph_fixed import find_merge_base
 
@@ -62,6 +61,7 @@ MergeOptions = namedtuple('MergeOptions', ['file_merger', 'rename_detector', 'st
 
 
 NO_ENTRY = TreeEntry(None, None, None)
+
 
 # walk a tree of trees
 def tree_entry_iterator(store, treeid, base=None):
@@ -131,8 +131,9 @@ def _updated_tree_entries_with_changes(repo, this_tree_id, mrg_results):
         merged_tree_entries.append(TreeEntry(apath, mode, sha))
     return merged_tree_entries
 
+
 def _create_virtual_tree_commit(repo, tree_id, parent1, parent2):
-    message = b'virtual commit of parents ' +  parent1 + b' ' +  parent2
+    message = b'virtual commit of parents ' + parent1 + b' ' + parent2
     merge_parents = [parent1, parent2]
     vcommit = repo.do_commit(
         message=message,
@@ -166,7 +167,8 @@ def _create_virtual_merge_base_for_lcas(repo, moptions, lcas_commits, result, vc
         return -1
     result.append(base)
     return 0 
-        
+
+
 def _create_virtual_merge_base_internal(repo, moptions, b1, b2, result, vcommits):
     lcas_commits = find_merge_base(repo, [b1, b2])
     lcas_commits.reverse()
@@ -174,7 +176,7 @@ def _create_virtual_merge_base_internal(repo, moptions, b1, b2, result, vcommits
     if not base:
         # create a virtual commit to an empty tree to act as merge base
         empty_tree_id = create_and_store_merged_tree(repo.object_store, [])
-        vcommit  = _create_virtual_tree_commit(repo, empty_tree_id, this_commit, other_commit)
+        vcommit = _create_virtual_tree_commit(repo, empty_tree_id, b1, b2)
         print('creating empty tree to act as ancestor via virtual commit: ', vcommit)
         base = vcommit
         vcommits.append(vcommit)
@@ -234,7 +236,7 @@ def _merge_entry(moptions, new_path, object_store, this_entry,
         return NO_ENTRY, [conflict]
     
     this_content = object_store[this_entry.sha].as_raw_string()
-    other_content =  object_store[other_entry.sha].as_raw_string()
+    other_content = object_store[other_entry.sha].as_raw_string()
     base_content = object_store[base_entry.sha].as_raw_string()
     
     # handle when binary files detected
@@ -245,7 +247,7 @@ def _merge_entry(moptions, new_path, object_store, this_entry,
             elif moptions.strategy == "ort-theirs":
                 return TreeEntry(other_entry.path, other_entry.mode, other_entry.sha), []
             else:
-                conflict = MergeConflict('structure',this_entry, other_entry, base_entry,
+                conflict = MergeConflict('structure', this_entry, other_entry, base_entry,
                                          '3 way diff and merge of binary files not supported %s' % this_entry.path) 
                 return NO_ENTRY, [conflict]  
         else:
@@ -255,7 +257,7 @@ def _merge_entry(moptions, new_path, object_store, this_entry,
     (merged_text, conflict_list) = moptions.file_merger(this_content, other_content, base_content, moptions.strategy)
     chunk_conflicts = []
     for (range_o, range_a, range_b) in conflict_list:
-        message=str(new_path) + ' in line ranges ' + str(range_o) + str(range_a) + str(range_b)
+        message = str(new_path) + ' in line ranges ' + str(range_o) + str(range_a) + str(range_b)
         conflict = MergeConflict('chunk', this_entry, other_entry, base_entry, message)
         chunk_conflicts.append(conflict)
 
@@ -272,7 +274,7 @@ def _merge_entry(moptions, new_path, object_store, this_entry,
     return (TreeEntry(new_path, mode, merged_text_blob.id), chunk_conflicts)
 
 
-def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
+def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):  # noqa: C901
     """Merge two trees.
 
     Args:
@@ -285,8 +287,8 @@ def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
       iterator over changed objects: tuple of TreeEntry, List of MergeConflicts)
     """
     changes_this = tree_changes(object_store, common_tree, this_tree)
-    changes_this_by_common_path = { change.old.path: change for change in changes_this if change.old }
-    changes_this_by_this_path = { change.new.path: change for change in changes_this if change.new }
+    changes_this_by_common_path = {change.old.path: change for change in changes_this if change.old}
+    changes_this_by_this_path = {change.new.path: change for change in changes_this if change.new}
     for other_change in tree_changes(object_store, common_tree, other_tree):
         this_change = changes_this_by_common_path.get(other_change.old.path)
         
@@ -335,7 +337,7 @@ def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
                 yield NO_ENTRY, [conflict]
             elif this_change:
                 message = 'Not Implemented %r and %r' % (this_change, other_change)
-                conflict = MergeConflict('ni',this_entry, other_entry, base_entry, message)
+                conflict = MergeConflict('ni', this_entry, None, None, message)
                 yield NO_ENTRY, [conflict]
             else:
                 yield TreeEntry(other_change.new.path, other_change.new.mode, other_change.new.sha), []
@@ -350,13 +352,13 @@ def merge_tree(object_store, moptions, this_tree, other_tree, common_tree):
                                    other_change.new, other_change.old)
             elif this_change:
                 message = 'Not Implemented %r and %r' % (this_change, other_change)
-                conflict = MergeConflict('ni',this_entry, other_entry, base_entry, message)
+                conflict = MergeConflict('ni', this_entry, None, None, message)
                 yield NO_ENTRY, [conflict]
             else:
                 yield TreeEntry(other_change.new.path, other_change.new.mode, other_change.new.sha), []
         else:
             message = 'Not Implemented %r' % other_change.type
-            conflict = MergeConflict('ni',this_entry, other_entry, base_entry, message)
+            conflict = MergeConflict('ni', this_entry, None, None, message)
             yield NO_ENTRY, [conflict]
 
 
@@ -401,8 +403,7 @@ class MergeResults(object):
         return apath in self.hand_merge_set
 
 
-
-def merge(repo, moptions, commit_ids):
+def merge(repo, moptions, commit_ids):  # noqa: C901
     """Perform a merge.
     Args:
       repo:            repository object
@@ -415,9 +416,9 @@ def merge(repo, moptions, commit_ids):
     vcommits = []
 
     if len(commit_ids) != 2:
-        mrg_results.structure_conflicts.append(MergeConflict('structure',None, None, None, "can only merge two commits"))
+        mrg_results.structure_conflicts.append(MergeConflict('structure', None, None, None, "can only merge two commits"))
         return mrg_results
-        
+
     [this_commit, other_commit] = commit_ids
     branch_list = []
     branch_list.append(this_commit)
@@ -429,7 +430,7 @@ def merge(repo, moptions, commit_ids):
     if len(lcas) == 0:
         # create a virtual commit to an empty tree to act as merge base
         empty_tree_id = create_and_store_merged_tree(repo.object_store, [])
-        vcommit  = _create_virtual_tree_commit(repo, empty_tree_id, this_commit, other_commit)
+        vcommit = _create_virtual_tree_commit(repo, empty_tree_id, this_commit, other_commit)
         print('creating empty tree to act as ancestor via virtual commit: ', vcommit)
         lcas.append(vcommit)
         vcommits.append(vcommit)
@@ -451,9 +452,13 @@ def merge(repo, moptions, commit_ids):
             merge_base = result[0]
         print("virtual merge base being used: ", merge_base)
 
-    this_tree_id = repo.object_store[this_commit].tree
-    other_tree_id = repo.object_store[other_commit].tree
-    base_tree_id = repo.object_store[merge_base].tree
+    this_commit_obj = repo.object_store[this_commit]
+    other_commit_obj = repo.object_store[other_commit]
+    base_commit_obj = repo.object_store[merge_base]
+    
+    this_tree_id = this_commit_obj.tree
+    other_tree_id = other_commit_obj.tree
+    base_tree_id = base_commit_obj.tree
 
     # walk all changed entries first before trying to build the merged tree
     for entry, conflicts in merge_tree(repo.object_store,
@@ -476,7 +481,7 @@ def merge(repo, moptions, commit_ids):
         merged_tree_entries = _updated_tree_entries_with_changes(repo, this_tree_id, mrg_results)
         mrg_results.tree_id = create_and_store_merged_tree(repo.object_store, merged_tree_entries)
 
-        # For now lets update the working dir and stage the results
+        # update the working dir and stage the results
         to_stage_relpaths = []
         for entry in mrg_results.updated_tree_entry_iterator():
             (path, mode, sha) = entry
@@ -486,16 +491,32 @@ def merge(repo, moptions, commit_ids):
             build_file_from_blob(blob, mode, full_path)
             if not mrg_results.needs_to_be_hand_merged(path):
                 to_stage_relpaths.append(path)
-                
         if len(to_stage_relpaths) > 0:
             repo.stage(to_stage_relpaths)
-
+        # set merge conflict records in the current index
+        if mrg_results.has_chunk_conflicts():
+            index = repo.open_index()
+            for conflict in mrg_results.chunk_conflict_iterator():
+                entry = conflict.base_entry
+                if entry:
+                    time = base_commit_obj.commit_time
+                    index.set_merge_conflict(entry.path, 1, entry.mode, entry.sha, time)
+                entry = conflict.this_entry
+                if entry:
+                    time = this_commit_obj.commit_time
+                    index.set_merge_conflict(entry.path, 2, entry.mode, entry.sha, time)
+                entry = conflict.other_entry
+                if entry:
+                    time = other_commit_obj.commit_time
+                    index.set_merge_conflict(entry.path, 3, entry.mode, entry.sha, time)
+            index.write()
+            
     # remove any dangling virtual commits to facilitate the merge
     # removing their trees can cause issues as they may be needed
     # in forming the merged results
     if len(vcommits) > 0:
         print("Cleaning Repo Object Store of virtual objects")
-        has_conflicts = mrg_results.has_structure_conflicts() or mrg_results.has_chunk_conflicts()
+        has_conflicts = mrg_results.has_structure_conflicts() or mrg_results.has_chunk_conflicts()  # noqa F841
         for vcmt in vcommits:
             # vtree_id = repo.object_store[vcmt].tree
             # if vcmt != merge_base or not has_conflicts: 
@@ -503,6 +524,5 @@ def merge(repo, moptions, commit_ids):
             #     repo.object_store._remove_loose_object(vtree_id)
             print("...removing virtual commit: ", vcmt)
             repo.object_store._remove_loose_object(vcmt)
-
 
     return mrg_results
