@@ -49,7 +49,7 @@ from graph_fixed import (
     find_octopus_base
 )
 
-from merge_addl import (
+from merge import (
     merge,
     MergeOptions,
     MergeResults,
@@ -217,8 +217,6 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     # work around that here
     with open_repo_closing(repo) as r:
         porcelain_checkout_branch(r, committishs[0])
-    # print("Index at Start")
-    # ls_files_index(repo)
     this_commit = None
     if repo_is_clean(repo):
         with open_repo_closing(repo) as r:
@@ -250,7 +248,7 @@ def branch_merge(repo, committishs, file_merger=None, strategy="ort"):
     return mrg_results
         
 
-def merge_base(repo, committishs, all=False, octopus=False):
+def merge_base(repo, committishs, all=True, octopus=False):
     """Find the merge base to use for a set of commits.
     Args:
       repo: Repository path in which the commits live
@@ -266,7 +264,7 @@ def merge_base(repo, committishs, all=False, octopus=False):
         if octopus:
             lcas = find_octopus_base(r, commits)
         else:
-            # find_merge_base sorts lcas by commit time oldest to newest
+            # find_merge_base sorted lcas by commit time oldest to newest
             lcas = find_merge_base(r, commits)
             
         if all:
@@ -275,21 +273,6 @@ def merge_base(repo, committishs, all=False, octopus=False):
         if lcas:
             return lcas[-1]
         return None
-
-
-def merge_base_is_ancestor(repo, committish_A, committish_B):
-    """Test if committish_A is ancestor of committich_B
-    Args:
-      repo: Repository path in which the commits live
-      committish_A, committish_B: commits to test
-    Returns:
-      True if commitish_A is ancestor of committish_B False otherwise
-    """
-    with open_repo_closing(repo) as r:
-        commit_A = parse_commit(r, committish_A).id
-        commit_B = parse_commit(r, committish_B).id
-        lcas = find_merge_base(r, [commit_A, commit_B])
-        return lcas == [commit_A]
 
 
 def diff(repo, committish1=None,

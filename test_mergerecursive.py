@@ -26,7 +26,7 @@ from diff3merge import ( # noqa F401
     do_file_merge_histogram
 )
 
-from merge_addl import (
+from merge import (
     TreeEntry,
     MergeResults,
     MergeConflict
@@ -52,14 +52,13 @@ def main():
         print("Structure Conflicts Detected")
         print(mrg_results.structure_conflicts[0])
 
-    # FIXME:  dulwich Index class has no git_conflict_add and git conflict_remove functionality
-    # so it never uses STAGEMASK to create multiple staged entries for a merge conflict
-    if mrg_results.has_chunk_conflicts():
-        for conflict in mrg_results.chunk_conflict_iterator():
-            print("3way merge conflict: ", conflict.message)
-            print("3way base  : ", conflict.base_entry.sha, conflict.base_entry.path)
-            print("3way alice : ", conflict.this_entry.sha, conflict.this_entry.path)
-            print("3way bob   : ", conflict.other_entry.sha, conflict.other_entry.path)
+    
+    # if mrg_results.has_chunk_conflicts():
+    #     for conflict in mrg_results.chunk_conflict_iterator():
+    #         print("3way merge conflict: ", conflict.message)
+    #         print("3way base  : ", conflict.base_entry.sha, conflict.base_entry.path)
+    #         print("3way alice : ", conflict.this_entry.sha, conflict.this_entry.path)
+    #         print("3way bob   : ", conflict.other_entry.sha, conflict.other_entry.path)
 
     for entry in mrg_results.updated_tree_entry_iterator():
         print(entry)
