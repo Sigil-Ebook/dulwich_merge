@@ -85,7 +85,7 @@ def do_file_merge_ndiff(alice, bob, ancestor, strategy):
            tuple of bytestring result of merge of alice with bob and
            list of any conflict ranges
     """
-    if not ancestor == 0:
+    if not ancestor:
         ancestor = generate_common_ancestor(alice, bob)
     mrg3 = Merge3Way(alice, bob, ancestor, "ndiff", strategy)
     res = mrg3.merge()
@@ -338,10 +338,10 @@ class Merge3Way(object):
 def main():
     """Perform 3-Way Merge of Alice and Bob using a common Ancestor
           Args:
-            ancestor_path - path to ancestor file
-            alice_path    - path to alice file
-            bob_path      - path to bob file
-            diff_type     - "myers" or "ndiff"
+            alice_path    - path to alice (this) file
+            bob_path      - path to bob (other) file
+            ancestor_path - path to ancestor (base) file
+            diff_type     - "myers" or "ndiff" or "histogram"
           Prints output of 3 way merge with any conflicts marked
     """
     argv = sys.argv
